@@ -1,0 +1,409 @@
+* {
+  box-sizing: border-box;
+}
+
+.boat-page {
+  min-height: 100vh;
+  padding: 48px 24px;
+  color: #172033;
+  background: linear-gradient(180deg, #eaf7ff 0%, #f7fbff 45%, #ffffff 100%);
+}
+
+.boat-header {
+  max-width: 760px;
+  margin: 0 auto 36px;
+  text-align: center;
+}
+
+.boat-header h1 {
+  margin: 8px 0 12px;
+  font-size: clamp(2rem, 5vw, 3.5rem);
+}
+
+.boat-header > p:last-child {
+  margin: 0;
+  color: #5b6473;
+  font-size: 1.05rem;
+}
+
+.boat-eyebrow {
+  margin: 0;
+  color: #0877a8;
+  font-size: 0.85rem;
+  font-weight: 800;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+}
+
+.boat-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 24px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.boat-card {
+  overflow: hidden;
+  background: #ffffff;
+  border: 1px solid #dce8ef;
+  border-radius: 18px;
+  box-shadow: 0 12px 30px rgba(31, 73, 96, 0.12);
+  transition:
+    transform 180ms ease,
+    box-shadow 180ms ease;
+}
+
+.boat-card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 18px 40px rgba(31, 73, 96, 0.18);
+}
+
+.boat-image-wrapper {
+  position: relative;
+  height: 240px;
+  overflow: hidden;
+  background: #dcebf3;
+}
+
+.boat-image {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+
+.boat-price {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  padding: 9px 12px;
+  color: #ffffff;
+  background: rgba(10, 30, 45, 0.88);
+  border-radius: 999px;
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.boat-price small {
+  font-size: 0.72rem;
+  font-weight: 500;
+}
+
+.boat-card-content {
+  padding: 22px;
+}
+
+.boat-card-content h2 {
+  margin: 0 0 10px;
+  font-size: 1.45rem;
+}
+
+.boat-location {
+  display: flex;
+  gap: 7px;
+  align-items: center;
+  margin: 0 0 14px;
+  color: #0877a8;
+  font-weight: 700;
+}
+
+.boat-description {
+  min-height: 48px;
+  margin: 0 0 22px;
+  color: #606a78;
+  line-height: 1.55;
+}
+
+.appointment-button {
+  width: 100%;
+  padding: 12px 16px;
+  color: #ffffff;
+  background: #0877a8;
+  border: 0;
+  border-radius: 9px;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 750;
+}
+
+.appointment-button:hover {
+  background: #05658f;
+}
+
+.appointment-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  overflow-y: auto;
+  padding: 24px;
+  background: rgba(9, 24, 35, 0.68);
+}
+
+.appointment-dialog {
+  position: relative;
+  width: min(100%, 500px);
+  padding: 24px;
+  color: #172033;
+  background: #ffffff;
+  border-radius: 18px;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.32);
+}
+
+.dialog-close {
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  z-index: 2;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  color: #172033;
+  background: rgba(255, 255, 255, 0.92);
+  border: 0;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 1.8rem;
+  line-height: 1;
+}
+
+.dialog-boat-image {
+  width: 100%;
+  height: 185px;
+  display: block;
+  margin-bottom: 20px;
+  object-fit: cover;
+  border-radius: 12px;
+}
+
+.appointment-dialog h2 {
+  margin: 0 0 5px;
+}
+
+.selected-boat-name {
+  margin: 0;
+  color: #0877a8;
+  font-size: 1.1rem;
+  font-weight: 800;
+}
+
+.selected-boat-details {
+  margin: 5px 0 22px;
+  color: #667080;
+}
+
+.appointment-dialog label {
+  display: block;
+  margin-bottom: 17px;
+  font-weight: 700;
+}
+
+.appointment-dialog input {
+  width: 100%;
+  margin-top: 7px;
+  padding: 11px 12px;
+  color: #172033;
+  background: #ffffff;
+  border: 1px solid #aebdca;
+  border-radius: 8px;
+  font: inherit;
+}
+
+.date-time-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  align-items: end;
+}
+
+.date-time-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.date-time-field .react-datepicker-wrapper,
+.date-time-field .react-datepicker__input-container {
+  display: block;
+  width: 100%;
+  height: 46px;
+}
+
+.date-time-field > input,
+.date-time-field .react-datepicker__input-container > input {
+  display: block;
+  width: 100%;
+  height: 46px !important;
+  min-height: 46px !important;
+  max-height: 46px !important;
+  margin-top: 7px;
+  padding: 0 12px !important;
+  color: #172033;
+  background: #ffffff;
+  border: 1px solid #aebdca;
+  border-radius: 8px;
+  box-sizing: border-box;
+  font: inherit;
+  line-height: normal;
+}
+
+.date-time-field input[type="time"] {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.appointment-summary {
+  padding: 12px;
+  color: #174762;
+  background: #eaf7ff;
+  border-radius: 8px;
+}
+
+.dialog-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 22px;
+}
+
+.dialog-buttons button {
+  padding: 11px 16px;
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 750;
+}
+
+.cancel-button {
+  color: #253142;
+  background: #e9eef2;
+}
+
+.save-button {
+  color: #ffffff;
+  background: #0877a8;
+}
+
+.booking-contact-form {
+  width: 100%;
+}
+
+.booking-contact-form h2 {
+  margin-top: 0;
+  margin-bottom: 8px;
+}
+
+.contact-form-description {
+  margin: 0 0 22px;
+  color: #667080;
+}
+
+.booking-contact-form label {
+  display: block;
+  margin-bottom: 17px;
+  font-weight: 700;
+}
+
+.booking-contact-form input {
+  width: 100%;
+  margin-top: 7px;
+  padding: 11px 12px;
+  color: #172033;
+  background: #ffffff;
+  border: 1px solid #aebdca;
+  border-radius: 8px;
+  font: inherit;
+}
+
+.booking-contact-form input:focus {
+  border-color: #0877a8;
+  outline: 2px solid rgba(8, 119, 168, 0.18);
+}
+
+.booking-contact-form input:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.dialog-buttons button:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+@media (max-width: 850px) {
+  .boat-grid {
+    grid-template-columns: 1fr;
+    max-width: 560px;
+  }
+
+  .boat-image-wrapper {
+    height: 280px;
+  }
+}
+
+@media (max-width: 520px) {
+  .boat-page {
+    padding: 32px 14px;
+  }
+
+  .boat-image-wrapper {
+    height: 215px;
+  }
+
+  .date-time-row {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+
+  .dialog-buttons {
+    flex-direction: column-reverse;
+  }
+
+  .dialog-buttons button {
+    width: 100%;
+  }
+}
+.date-time-field input[type="time"] {
+  height: 46px !important;
+  min-height: 46px !important;
+  max-height: 46px !important;
+  padding: 0 12px !important;
+  line-height: 46px;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.date-time-field input[type="time"]::-webkit-date-and-time-value {
+  text-align: left;
+  line-height: 46px;
+}
+
+.date-time-field input[type="time"]::-webkit-datetime-edit {
+  padding: 0;
+}
+
+.date-time-field input[type="time"]::-webkit-calendar-picker-indicator {
+  margin: 0;
+}
+/* Make the React DatePicker input match Safari's time input */
+.react-datepicker-wrapper {
+  width: 100%;
+}
+
+.react-datepicker__input-container {
+  width: 100%;
+}
+
+.react-datepicker__input-container input {
+  width: 100%;
+  height: 46px; /* Increase until it matches */
+  padding: 0 12px;
+  box-sizing: border-box;
+  border: 1px solid #aebdca;
+  border-radius: 8px;
+  font: inherit;
+}
