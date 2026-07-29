@@ -609,7 +609,7 @@ function DashboardContent({
                         </div>
 
                         {experience.estimatedPrice != null && (
-                          <strong className="experience-price">
+                          <strong className="owner-experience-price">
                             ${experience.estimatedPrice.toFixed(2)}
                           </strong>
                         )}
@@ -714,9 +714,11 @@ function DashboardContent({
                   </div>
 
                   <div className="form-field">
-                    <label htmlFor="experience-price">Estimated price</label>
+                    <label htmlFor="owner-experience-price">
+                      Estimated price
+                    </label>
                     <input
-                      id="experience-price"
+                      id="owner-experience-price"
                       type="number"
                       min="0"
                       step="0.01"
