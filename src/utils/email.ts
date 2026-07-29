@@ -238,3 +238,18 @@ export async function sendPartnerRequestEmail({
 
   return result;
 }
+export async function sendContactEmail(message: string) {
+  return emailjs.send(
+    EMAILJS_SERVICE_ID,
+    EMAILJS_TEMPLATE_ID,
+    {
+      subject: "Contact Form Submission",
+      message,
+      // Use the exact variable name configured in EmailJS.
+      to_email: "alan_craig@msn.com",
+    },
+    {
+      publicKey: EMAILJS_PUBLIC_KEY,
+    },
+  );
+}

@@ -8,12 +8,12 @@ function Navbar() {
         </div>
         <nav className="nav">
           <Link to="/">Home</Link>
+          <Link to="/contact">Contact</Link>
           <Link to="/booking">Booking</Link>
           <Link to="/login">Login</Link>{" "}
           <Link to="/owner">Owner Dashboard</Link>
           <Link to="/user">User Dashboard</Link>
-          <Link to="/prizes">Prizes</Link>
-          <Link to="/partner">Partner</Link>
+          <Link to="/freeMerchandise">Free Merchandise</Link>
         </nav>
       </header>
     </div>

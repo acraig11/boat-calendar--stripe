@@ -10,6 +10,8 @@ import UserDashboard from "./pages/UserDashboard";
 import Prizes from "./pages/Prizes.tsx";
 import Home from "./pages/Home.tsx";
 import Partner from "./pages/Partner.tsx";
+import Contact from "./pages/Contact.tsx";
+import FreeMerch from "./pages/FreeMerch.tsx";
 function App() {
   return (
     <Routes>
@@ -18,6 +20,8 @@ function App() {
         <Route path="login" element={<Login />} />
         <Route path="Booking" element={<AppointmentCalendar />} />
         <Route path="owner" element={<OwnerDashboard />} />
+        <Route path="contact" element={<Contact />} />
+        <Route path="freeMerchandise" element={<FreeMerch />} />
 
         <Route path="user" element={<UserDashboard />} />
         <Route path="prizes" element={<Prizes />} />
