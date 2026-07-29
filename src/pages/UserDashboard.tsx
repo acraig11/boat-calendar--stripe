@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import type { FormEvent, HTMLInputTypeAttribute } from "react";
 import { getCurrentUser } from "aws-amplify/auth";
+import { Authenticator } from "@aws-amplify/ui-react";
+import "@aws-amplify/ui-react/styles.css";
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "../../amplify/data/resource";
 
@@ -885,4 +887,39 @@ const styles = {
   },
 };
 
-export default UserDashboard;
+function AuthenticatedUserDashboard() {
+  return (
+    <Authenticator>
+      {({ signOut, user }) => (
+        <>
+          <header
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              gap: 16,
+              padding: "16px",
+              background: "#fff",
+              borderBottom: "1px solid #ddd",
+            }}
+          >
+            <div>
+              Signed in as{" "}
+              <strong>
+                {user?.signInDetails?.loginId ?? "Signed-in user"}
+              </strong>
+            </div>
+
+            <button type="button" onClick={signOut}>
+              Sign Out
+            </button>
+          </header>
+
+          <UserDashboard />
+        </>
+      )}
+    </Authenticator>
+  );
+}
+
+export default AuthenticatedUserDashboard;
