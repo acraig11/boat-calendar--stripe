@@ -237,7 +237,7 @@ export default function AddBoat() {
 
       setMessage("Saving boat information...");
 
-      const { data, errors } = await client.models.Boat.create({
+      const { data, errors } = await client.models.Experience.create({
         name: trimmedName,
         experienceType: trimmedExperienceType,
         location: trimmedLocation,

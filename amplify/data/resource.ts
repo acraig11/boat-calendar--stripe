@@ -34,14 +34,14 @@ const schema = a.schema({
       email: a.email().required(),
       phone: a.string(),
 
-      boats: a.hasMany("Boat", "ownerProfileId"),
+      experiences: a.hasMany("Experience", "ownerProfileId"),
     })
     .authorization((allow) => [
       allow.owner(),
       allow.publicApiKey().to(["read"]),
     ]),
 
-  Boat: a
+  Experience: a
     .model({
       name: a.string().required(),
       description: a.string(),
@@ -53,7 +53,7 @@ const schema = a.schema({
       experienceType: a.string(),
       ownerProfile: a.belongsTo("ExperienceOwnerProfile", "ownerProfileId"),
 
-      bookings: a.hasMany("Booking", "boatId"),
+      bookings: a.hasMany("Booking", "experienceId"),
     })
     .authorization((allow) => [
       allow.owner(),
@@ -68,11 +68,11 @@ const schema = a.schema({
 
       appointmentDateTime: a.datetime().required(),
 
-      boatId: a.id().required(),
-      boat: a.belongsTo("Boat", "boatId"),
+      experienceId: a.id().required(),
+      experience: a.belongsTo("Experience", "experienceId"),
 
-      boatName: a.string().required(),
-      boatOwnerId: a.string().required(),
+      experienceName: a.string().required(),
+      experienceOwnerId: a.string().required(),
 
       location: a.string(),
 
@@ -81,7 +81,7 @@ const schema = a.schema({
       emailSent: a.boolean(),
     })
     .authorization((allow) => [
-      allow.ownerDefinedIn("boatOwnerId"),
+      allow.ownerDefinedIn("experienceOwnerId"),
       allow.guest().to(["create"]),
     ]),
 });

@@ -152,7 +152,7 @@ function AppointmentCalendar() {
         setIsLoadingBoats(true);
         setBoatLoadError("");
 
-        const { data, errors } = await client.models.Boat.list({
+        const { data, errors } = await client.models.Experience.list({
           authMode: "apiKey",
         });
 

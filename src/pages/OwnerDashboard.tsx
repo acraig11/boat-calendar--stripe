@@ -9,7 +9,9 @@ type OwnerProfile = Awaited<
   ReturnType<typeof client.models.ExperienceOwnerProfile.list>
 >["data"][number];
 
-type Boat = Awaited<ReturnType<typeof client.models.Boat.list>>["data"][number];
+type Boat = Awaited<
+  ReturnType<typeof client.models.Experience.list>
+>["data"][number];
 
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
 
@@ -138,7 +140,7 @@ function DashboardContent({
         setProfilePhone(currentProfile.phone ?? "");
       }
 
-      const boatResult = await client.models.Boat.list();
+      const boatResult = await client.models.Experience.list();
 
       if (boatResult.errors?.length) {
         throw new Error(
@@ -363,7 +365,7 @@ function DashboardContent({
 
       setMessage("Saving boat information...");
 
-      const result = await client.models.Boat.create({
+      const result = await client.models.Experience.create({
         name: boatName.trim(),
         experienceType: boatExperienceType.trim(),
         location: boatLocation.trim(),
@@ -428,7 +430,7 @@ function DashboardContent({
       setDeletingBoatId(boat.id);
       setMessage("");
 
-      const result = await client.models.Boat.delete({
+      const result = await client.models.Experience.delete({
         id: boat.id,
       });
 
