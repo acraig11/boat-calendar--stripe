@@ -407,3 +407,25 @@
   border-radius: 8px;
   font: inherit;
 }
+.experience-filter-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px 32px; /* 18px between rows, 32px between items */
+  align-items: center;
+}
+
+.experience-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px; /* Space between the checkbox and its text */
+  cursor: pointer;
+  white-space: nowrap;
+  font-size: 1rem;
+}
+
+.experience-checkbox input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  flex-shrink: 0;
+}
