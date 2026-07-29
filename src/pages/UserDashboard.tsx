@@ -6,7 +6,7 @@ import type { Schema } from "../../amplify/data/resource";
 
 const client = generateClient<Schema>();
 
-type UserProfile = Schema["Todo"]["type"];
+type UserProfile = Schema["UserProfile"]["type"];
 
 type ProfileForm = {
   firstName: string;
@@ -62,7 +62,7 @@ function UserDashboard() {
       const signedInEmail =
         currentUser.signInDetails?.loginId?.trim().toLowerCase() ?? "";
 
-      const result = await client.models.Todo.list({
+      const result = await client.models.UserProfile.list({
         filter: {
           userId: {
             eq: currentUser.userId,
@@ -102,7 +102,7 @@ function UserDashboard() {
       // Older profile records may not have userId.
       // If no profile was found by userId, fall back to the signed-in email.
       if (profileRecords.length === 0 && signedInEmail) {
-        const emailResult = await client.models.Todo.list({
+        const emailResult = await client.models.UserProfile.list({
           filter: {
             ownerEmail: {
               eq: signedInEmail,
@@ -285,7 +285,7 @@ function UserDashboard() {
       };
 
       if (profile?.id) {
-        const result = await client.models.Todo.update({
+        const result = await client.models.UserProfile.update({
           id: profile.id,
           userId: currentUser.userId,
           ...profileData,
@@ -304,7 +304,7 @@ function UserDashboard() {
         await loadProfile();
         setMessage("User profile updated.");
       } else {
-        const result = await client.models.Todo.create({
+        const result = await client.models.UserProfile.create({
           userId: currentUser.userId,
           rewardPoints: 0,
           ...profileData,

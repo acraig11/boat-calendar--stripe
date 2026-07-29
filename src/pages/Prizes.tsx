@@ -63,9 +63,9 @@ const prizes: Prize[] = [
   },
 ];
 
-const listTodos = /* GraphQL */ `
-  query ListTodos {
-    listTodos {
+const listUserProfiles = /* GraphQL */ `
+  query ListUserProfiles {
+    listUserProfiles {
       items {
         id
         userId
@@ -89,9 +89,9 @@ const listTodos = /* GraphQL */ `
   }
 `;
 
-const createTodo = /* GraphQL */ `
-  mutation CreateTodo($input: CreateTodoInput!) {
-    createTodo(input: $input) {
+const createUserProfile = /* GraphQL */ `
+  mutation CreateUserProfile($input: CreateUserProfileInput!) {
+    createUserProfile(input: $input) {
       id
       content
       rewardPoints
@@ -111,8 +111,8 @@ function Prizes() {
   async function loadPoints() {
     try {
       const currentUser = await getCurrentUser();
-      const result: any = await client.graphql({ query: listTodos });
-      const allRecords = result.data.listTodos.items ?? [];
+      const result: any = await client.graphql({ query: listUserProfiles });
+      const allRecords = result.data.listUserProfiles.items ?? [];
 
       const signedInEmail =
         currentUser.signInDetails?.loginId?.trim().toLowerCase() ?? "";
@@ -250,7 +250,7 @@ Apparel Gender: ${profile.apparelGender ?? "Not set"}
     // Email succeeded, now deduct points
 
     await client.graphql({
-      query: createTodo,
+      query: createUserProfile,
       variables: {
         input: {
           userId: currentUser.userId,
