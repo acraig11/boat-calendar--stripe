@@ -26,7 +26,7 @@ const schema = a.schema({
     })
     .authorization((allow) => [allow.owner()]),
 
-  BoatOwnerProfile: a
+  ExperienceOwnerProfile: a
     .model({
       userId: a.string().required(),
 
@@ -51,7 +51,7 @@ const schema = a.schema({
 
       ownerProfileId: a.id().required(),
       experienceType: a.string(),
-      ownerProfile: a.belongsTo("BoatOwnerProfile", "ownerProfileId"),
+      ownerProfile: a.belongsTo("ExperienceOwnerProfile", "ownerProfileId"),
 
       bookings: a.hasMany("Booking", "boatId"),
     })

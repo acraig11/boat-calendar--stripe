@@ -6,7 +6,7 @@ import { getCurrentUser } from "aws-amplify/auth";
 import { client } from "../lib/amplifyClient";
 import "./OwnerDashboard.css";
 type OwnerProfile = Awaited<
-  ReturnType<typeof client.models.BoatOwnerProfile.list>
+  ReturnType<typeof client.models.ExperienceOwnerProfile.list>
 >["data"][number];
 
 type Boat = Awaited<ReturnType<typeof client.models.Boat.list>>["data"][number];
@@ -122,7 +122,7 @@ function DashboardContent({
     setMessage("");
 
     try {
-      const profileResult = await client.models.BoatOwnerProfile.list();
+      const profileResult = await client.models.ExperienceOwnerProfile.list();
 
       if (profileResult.errors?.length) {
         throw new Error(
@@ -194,7 +194,7 @@ function DashboardContent({
 
       const currentUser = await getCurrentUser();
 
-      const result = await client.models.BoatOwnerProfile.create({
+      const result = await client.models.ExperienceOwnerProfile.create({
         userId: currentUser.userId,
         name: trimmedName,
         email: trimmedEmail,

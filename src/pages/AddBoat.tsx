@@ -9,7 +9,7 @@ import { remove, uploadData } from "aws-amplify/storage";
 import { client } from "../lib/amplifyClient";
 
 type OwnerProfile = Awaited<
-  ReturnType<typeof client.models.BoatOwnerProfile.list>
+  ReturnType<typeof client.models.ExperienceOwnerProfile.list>
 >["data"][number];
 
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
@@ -57,7 +57,8 @@ export default function AddBoat() {
   useEffect(() => {
     async function loadProfile() {
       try {
-        const { data, errors } = await client.models.BoatOwnerProfile.list();
+        const { data, errors } =
+          await client.models.ExperienceOwnerProfile.list();
 
         if (errors?.length) {
           throw new Error(errors.map((error) => error.message).join(", "));

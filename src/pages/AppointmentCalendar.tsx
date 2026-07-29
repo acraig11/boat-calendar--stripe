@@ -314,7 +314,7 @@ function AppointmentCalendar() {
         throw new Error("This boat does not have an owner profile ID.");
       }
 
-      const ownerProfileResult = await client.models.BoatOwnerProfile.get(
+      const ownerProfileResult = await client.models.ExperienceOwnerProfile.get(
         {
           id: selectedBoat.ownerProfileId,
         },
@@ -334,9 +334,10 @@ function AppointmentCalendar() {
       // Fallback: list the readable owner profiles and match the boat's
       // ownerProfileId. This also helps when get() returns no readable data.
       if (!ownerProfile?.email) {
-        const ownerProfilesResult = await client.models.BoatOwnerProfile.list({
-          authMode: "apiKey",
-        });
+        const ownerProfilesResult =
+          await client.models.ExperienceOwnerProfile.list({
+            authMode: "apiKey",
+          });
 
         console.log("Owner profile list result:", ownerProfilesResult);
 
