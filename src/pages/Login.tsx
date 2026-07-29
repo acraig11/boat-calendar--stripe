@@ -6,8 +6,6 @@ export default function Login() {
     <Authenticator>
       {({ signOut, user }) => (
         <div style={{ padding: "2rem" }}>
-          <h1>Boat Owner Dashboard</h1>
-
           <p>Welcome {user?.signInDetails?.loginId}</p>
 
           <button onClick={signOut}>Sign Out</button>

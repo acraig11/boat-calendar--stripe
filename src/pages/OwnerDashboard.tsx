@@ -9,7 +9,7 @@ type OwnerProfile = Awaited<
   ReturnType<typeof client.models.ExperienceOwnerProfile.list>
 >["data"][number];
 
-type Boat = Awaited<
+type Experience = Awaited<
   ReturnType<typeof client.models.Experience.list>
 >["data"][number];
 
@@ -37,29 +37,43 @@ const EXPERIENCE_TYPES = [
   "Beach",
 ];
 
-function BoatImage({
+function ExperienceImage({
   imagePath,
-  boatName,
+  experienceName,
 }: {
   imagePath: string;
-  boatName: string;
+  experienceName: string;
 }) {
   const [displayUrl, setDisplayUrl] = useState("");
+  const [imageError, setImageError] = useState("");
 
   useEffect(() => {
     let active = true;
 
     async function loadImage() {
+      setDisplayUrl("");
+      setImageError("");
+
       try {
         const result = await getUrl({
           path: imagePath,
+          options: {
+            validateObjectExistence: true,
+          },
         });
 
         if (active) {
           setDisplayUrl(result.url.toString());
         }
       } catch (error) {
-        console.error("Could not load boat image:", error);
+        console.error(
+          `Could not load experience image at path "${imagePath}":`,
+          error,
+        );
+
+        if (active) {
+          setImageError("Image could not be loaded.");
+        }
       }
     }
 
@@ -70,6 +84,10 @@ function BoatImage({
     };
   }, [imagePath]);
 
+  if (imageError) {
+    return <p>{imageError}</p>;
+  }
+
   if (!displayUrl) {
     return <p>Loading image...</p>;
   }
@@ -77,7 +95,7 @@ function BoatImage({
   return (
     <img
       src={displayUrl}
-      alt={boatName}
+      alt={experienceName}
       width="200"
       style={{
         height: "140px",
@@ -96,28 +114,32 @@ function DashboardContent({
   userEmail: string;
 }) {
   const [profile, setProfile] = useState<OwnerProfile | null>(null);
-  const [boats, setBoats] = useState<Boat[]>([]);
+  const [experiences, setexperiences] = useState<Experience[]>([]);
 
   const [profileName, setProfileName] = useState("");
   const [profilePhone, setProfilePhone] = useState("");
 
-  const [boatName, setBoatName] = useState("");
-  const [boatExperienceType, setBoatExperienceType] = useState("");
-  const [boatLocation, setBoatLocation] = useState("");
-  const [boatDescription, setBoatDescription] = useState("");
-  const [boatPrice, setBoatPrice] = useState("");
+  const [experienceName, setexperienceName] = useState("");
+  const [experienceExperienceType, setexperienceExperienceType] = useState("");
+  const [experienceLocation, setexperienceLocation] = useState("");
+  const [experienceDescription, setexperienceDescription] = useState("");
+  const [experiencePrice, setexperiencePrice] = useState("");
 
-  const [boatImageFile, setBoatImageFile] = useState<File | null>(null);
-  const [boatImagePreview, setBoatImagePreview] = useState("");
+  const [experienceImageFile, setexperienceImageFile] = useState<File | null>(
+    null,
+  );
+  const [experienceImagePreview, setexperienceImagePreview] = useState("");
   const [uploadProgress, setUploadProgress] = useState(0);
 
   const [message, setMessage] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-  const [showAddBoatForm, setShowAddBoatForm] = useState(false);
-  const [deletingBoatId, setDeletingBoatId] = useState<string | null>(null);
+  const [showAddexperienceForm, setShowAddexperienceForm] = useState(false);
+  const [deletingexperienceId, setDeletingexperienceId] = useState<
+    string | null
+  >(null);
 
-  const boatImageInputRef = useRef<HTMLInputElement>(null);
+  const experienceImageInputRef = useRef<HTMLInputElement>(null);
 
   async function loadDashboard() {
     setIsLoading(true);
@@ -140,15 +162,15 @@ function DashboardContent({
         setProfilePhone(currentProfile.phone ?? "");
       }
 
-      const boatResult = await client.models.Experience.list();
+      const experienceResult = await client.models.Experience.list();
 
-      if (boatResult.errors?.length) {
+      if (experienceResult.errors?.length) {
         throw new Error(
-          boatResult.errors.map((error) => error.message).join(", "),
+          experienceResult.errors.map((error) => error.message).join(", "),
         );
       }
 
-      setBoats(boatResult.data);
+      setexperiences(experienceResult.data);
     } catch (error) {
       console.error("Could not load owner dashboard:", error);
 
@@ -168,11 +190,11 @@ function DashboardContent({
 
   useEffect(() => {
     return () => {
-      if (boatImagePreview) {
-        URL.revokeObjectURL(boatImagePreview);
+      if (experienceImagePreview) {
+        URL.revokeObjectURL(experienceImagePreview);
       }
     };
-  }, [boatImagePreview]);
+  }, [experienceImagePreview]);
 
   async function createProfile(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -225,28 +247,28 @@ function DashboardContent({
       setIsSaving(false);
     }
   }
-  function clearBoatImage() {
-    if (boatImagePreview) {
-      URL.revokeObjectURL(boatImagePreview);
+  function clearexperienceImage() {
+    if (experienceImagePreview) {
+      URL.revokeObjectURL(experienceImagePreview);
     }
 
-    setBoatImageFile(null);
-    setBoatImagePreview("");
+    setexperienceImageFile(null);
+    setexperienceImagePreview("");
     setUploadProgress(0);
 
-    if (boatImageInputRef.current) {
-      boatImageInputRef.current.value = "";
+    if (experienceImageInputRef.current) {
+      experienceImageInputRef.current.value = "";
     }
   }
 
-  function handleBoatImageChange(event: ChangeEvent<HTMLInputElement>) {
+  function handleexperienceImageChange(event: ChangeEvent<HTMLInputElement>) {
     const selectedFile = event.target.files?.[0];
 
     setMessage("");
     setUploadProgress(0);
 
     if (!selectedFile) {
-      clearBoatImage();
+      clearexperienceImage();
       return;
     }
 
@@ -262,12 +284,12 @@ function DashboardContent({
       return;
     }
 
-    if (boatImagePreview) {
-      URL.revokeObjectURL(boatImagePreview);
+    if (experienceImagePreview) {
+      URL.revokeObjectURL(experienceImagePreview);
     }
 
-    setBoatImageFile(selectedFile);
-    setBoatImagePreview(URL.createObjectURL(selectedFile));
+    setexperienceImageFile(selectedFile);
+    setexperienceImagePreview(URL.createObjectURL(selectedFile));
   }
 
   function getImageExtension(file: File) {
@@ -293,11 +315,11 @@ function DashboardContent({
     }
   }
 
-  async function uploadBoatImage(file: File) {
+  async function uploadexperienceImage(file: File) {
     const fileName = `${crypto.randomUUID()}.${getImageExtension(file)}`;
 
     const result = await uploadData({
-      path: ({ identityId }) => `boat-images/${identityId}/${fileName}`,
+      path: ({ identityId }) => `experience-images/${identityId}/${fileName}`,
       data: file,
       options: {
         contentType: file.type,
@@ -315,7 +337,7 @@ function DashboardContent({
     return result.path;
   }
 
-  async function addBoat(event: React.FormEvent<HTMLFormElement>) {
+  async function addExperience(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     if (!profile) {
@@ -323,28 +345,28 @@ function DashboardContent({
       return;
     }
 
-    if (!boatName.trim()) {
+    if (!experienceName.trim()) {
       setMessage("Experience name is required.");
       return;
     }
 
-    if (!boatExperienceType.trim()) {
+    if (!experienceExperienceType.trim()) {
       setMessage("Please select an experience type.");
       return;
     }
 
-    if (!boatLocation.trim()) {
+    if (!experienceLocation.trim()) {
       setMessage("Experience location is required.");
       return;
     }
 
-    if (!boatImageFile) {
+    if (!experienceImageFile) {
       setMessage("Please choose an experience image.");
       return;
     }
 
     const numericPrice =
-      boatPrice.trim() === "" ? undefined : Number(boatPrice);
+      experiencePrice.trim() === "" ? undefined : Number(experiencePrice);
 
     if (
       numericPrice !== undefined &&
@@ -358,18 +380,18 @@ function DashboardContent({
 
     try {
       setIsSaving(true);
-      setMessage("Uploading boat image...");
+      setMessage("Uploading experience image...");
       setUploadProgress(0);
 
-      uploadedImagePath = await uploadBoatImage(boatImageFile);
+      uploadedImagePath = await uploadexperienceImage(experienceImageFile);
 
-      setMessage("Saving boat information...");
+      setMessage("Saving experience information...");
 
       const result = await client.models.Experience.create({
-        name: boatName.trim(),
-        experienceType: boatExperienceType.trim(),
-        location: boatLocation.trim(),
-        description: boatDescription.trim() || undefined,
+        name: experienceName.trim(),
+        experienceType: experienceExperienceType.trim(),
+        location: experienceLocation.trim(),
+        description: experienceDescription.trim() || undefined,
         estimatedPrice: numericPrice,
         imageUrl: uploadedImagePath,
         ownerProfileId: profile.id,
@@ -380,22 +402,25 @@ function DashboardContent({
       }
 
       if (!result.data) {
-        throw new Error("The boat was not created.");
+        throw new Error("The experience was not created.");
       }
 
-      setBoats((currentBoats) => [...currentBoats, result.data]);
+      setexperiences((currentexperiences) => [
+        ...currentexperiences,
+        result.data,
+      ]);
 
-      setBoatName("");
-      setBoatExperienceType("");
-      setBoatLocation("");
-      setBoatDescription("");
-      setBoatPrice("");
-      clearBoatImage();
-      setShowAddBoatForm(false);
+      setexperienceName("");
+      setexperienceExperienceType("");
+      setexperienceLocation("");
+      setexperienceDescription("");
+      setexperiencePrice("");
+      clearexperienceImage();
+      setShowAddexperienceForm(false);
 
       setMessage("Experience added successfully.");
     } catch (error) {
-      console.error("Could not add boat:", error);
+      console.error("Could not add experience:", error);
 
       if (uploadedImagePath) {
         try {
@@ -417,9 +442,9 @@ function DashboardContent({
     }
   }
 
-  async function deleteBoat(boat: Boat) {
+  async function deleteExperience(experience: Experience) {
     const confirmed = window.confirm(
-      `Are you sure you want to delete "${boat.name}"?`,
+      `Are you sure you want to delete "${experience.name}"?`,
     );
 
     if (!confirmed) {
@@ -427,37 +452,39 @@ function DashboardContent({
     }
 
     try {
-      setDeletingBoatId(boat.id);
+      setDeletingexperienceId(experience.id);
       setMessage("");
 
       const result = await client.models.Experience.delete({
-        id: boat.id,
+        id: experience.id,
       });
 
       if (result.errors?.length) {
         throw new Error(result.errors.map((error) => error.message).join(", "));
       }
 
-      setBoats((currentBoats) =>
-        currentBoats.filter((currentBoat) => currentBoat.id !== boat.id),
+      setexperiences((currentexperiences) =>
+        currentexperiences.filter(
+          (currentexperience) => currentexperience.id !== experience.id,
+        ),
       );
 
-      if (boat.imageUrl) {
+      if (experience.imageUrl) {
         try {
           await remove({
-            path: boat.imageUrl,
+            path: experience.imageUrl,
           });
         } catch (imageError) {
           console.error(
-            "Boat deleted, but its stored image could not be removed:",
+            "experience deleted, but its stored image could not be removed:",
             imageError,
           );
         }
       }
 
-      setMessage(`"${boat.name}" was deleted.`);
+      setMessage(`"${experience.name}" was deleted.`);
     } catch (error) {
-      console.error("Could not delete boat:", error);
+      console.error("Could not delete experience:", error);
 
       setMessage(
         error instanceof Error
@@ -465,7 +492,7 @@ function DashboardContent({
           : "Could not delete the experience.",
       );
     } finally {
-      setDeletingBoatId(null);
+      setDeletingexperienceId(null);
     }
   }
 
@@ -551,17 +578,17 @@ function DashboardContent({
           <section className="dashboard-section">
             <h2>My Experiences</h2>
 
-            {boats.length === 0 ? (
+            {experiences.length === 0 ? (
               <p>You have not added any experiences yet.</p>
             ) : (
               <div className="experience-card-grid">
-                {boats.map((boat) => (
-                  <article className="experience-card" key={boat.id}>
+                {experiences.map((experience) => (
+                  <article className="experience-card" key={experience.id}>
                     <div className="experience-card-image">
-                      {boat.imageUrl ? (
-                        <BoatImage
-                          imagePath={boat.imageUrl}
-                          boatName={boat.name}
+                      {experience.imageUrl ? (
+                        <ExperienceImage
+                          imagePath={experience.imageUrl}
+                          experienceName={experience.name}
                         />
                       ) : (
                         <div className="experience-image-placeholder">
@@ -573,26 +600,28 @@ function DashboardContent({
                     <div className="experience-card-body">
                       <div className="experience-card-heading">
                         <div>
-                          <h3>{boat.name}</h3>
-                          {boat.experienceType && (
+                          <h3>{experience.name}</h3>
+                          {experience.experienceType && (
                             <span className="experience-type-badge">
-                              {boat.experienceType}
+                              {experience.experienceType}
                             </span>
                           )}
                         </div>
 
-                        {boat.estimatedPrice != null && (
+                        {experience.estimatedPrice != null && (
                           <strong className="experience-price">
-                            ${boat.estimatedPrice.toFixed(2)}
+                            ${experience.estimatedPrice.toFixed(2)}
                           </strong>
                         )}
                       </div>
 
-                      <p className="experience-location">{boat.location}</p>
+                      <p className="experience-location">
+                        {experience.location}
+                      </p>
 
-                      {boat.description && (
+                      {experience.description && (
                         <p className="experience-description">
-                          {boat.description}
+                          {experience.description}
                         </p>
                       )}
                     </div>
@@ -602,12 +631,12 @@ function DashboardContent({
                         type="button"
                         className="delete-experience-button"
                         onClick={() => {
-                          void deleteBoat(boat);
+                          void deleteExperience(experience);
                         }}
-                        disabled={deletingBoatId === boat.id}
-                        aria-label={`Delete ${boat.name}`}
+                        disabled={deletingexperienceId === experience.id}
+                        aria-label={`Delete ${experience.name}`}
                       >
-                        {deletingBoatId === boat.id
+                        {deletingexperienceId === experience.id
                           ? "Deleting..."
                           : "Delete Experience"}
                       </button>
@@ -617,12 +646,12 @@ function DashboardContent({
               </div>
             )}
 
-            {!showAddBoatForm && (
+            {!showAddexperienceForm && (
               <button
                 type="button"
                 onClick={() => {
                   setMessage("");
-                  setShowAddBoatForm(true);
+                  setShowAddexperienceForm(true);
                 }}
               >
                 Add Experience
@@ -630,32 +659,34 @@ function DashboardContent({
             )}
           </section>
 
-          {showAddBoatForm && (
+          {showAddexperienceForm && (
             <section className="dashboard-section">
               <h2>Add Experience</h2>
 
-              <form className="experience-form" onSubmit={addBoat}>
+              <form className="experience-form" onSubmit={addExperience}>
                 <div className="experience-form-grid">
                   <div className="form-field">
-                    <label htmlFor="boat-name">Experience name</label>
+                    <label htmlFor="experience-name">Experience name</label>
                     <input
-                      id="boat-name"
-                      value={boatName}
-                      onChange={(event) => setBoatName(event.target.value)}
+                      id="experience-name"
+                      value={experienceName}
+                      onChange={(event) =>
+                        setexperienceName(event.target.value)
+                      }
                       disabled={isSaving}
                       required
                     />
                   </div>
 
                   <div className="form-field">
-                    <label htmlFor="boat-experience-type">
+                    <label htmlFor="experience-experience-type">
                       Experience type
                     </label>
                     <select
-                      id="boat-experience-type"
-                      value={boatExperienceType}
+                      id="experience-experience-type"
+                      value={experienceExperienceType}
                       onChange={(event) =>
-                        setBoatExperienceType(event.target.value)
+                        setexperienceExperienceType(event.target.value)
                       }
                       disabled={isSaving}
                       required
@@ -670,50 +701,54 @@ function DashboardContent({
                   </div>
 
                   <div className="form-field">
-                    <label htmlFor="boat-location">Location</label>
+                    <label htmlFor="experience-location">Location</label>
                     <input
-                      id="boat-location"
-                      value={boatLocation}
-                      onChange={(event) => setBoatLocation(event.target.value)}
+                      id="experience-location"
+                      value={experienceLocation}
+                      onChange={(event) =>
+                        setexperienceLocation(event.target.value)
+                      }
                       disabled={isSaving}
                       required
                     />
                   </div>
 
                   <div className="form-field">
-                    <label htmlFor="boat-price">Estimated price</label>
+                    <label htmlFor="experience-price">Estimated price</label>
                     <input
-                      id="boat-price"
+                      id="experience-price"
                       type="number"
                       min="0"
                       step="0.01"
-                      value={boatPrice}
-                      onChange={(event) => setBoatPrice(event.target.value)}
-                      disabled={isSaving}
-                    />
-                  </div>
-
-                  <div className="form-field form-field-full">
-                    <label htmlFor="boat-description">Description</label>
-                    <textarea
-                      id="boat-description"
-                      rows={5}
-                      value={boatDescription}
+                      value={experiencePrice}
                       onChange={(event) =>
-                        setBoatDescription(event.target.value)
+                        setexperiencePrice(event.target.value)
                       }
                       disabled={isSaving}
                     />
                   </div>
 
                   <div className="form-field form-field-full">
-                    <label htmlFor="boat-image">Experience image</label>
+                    <label htmlFor="experience-description">Description</label>
+                    <textarea
+                      id="experience-description"
+                      rows={5}
+                      value={experienceDescription}
+                      onChange={(event) =>
+                        setexperienceDescription(event.target.value)
+                      }
+                      disabled={isSaving}
+                    />
+                  </div>
+
+                  <div className="form-field form-field-full">
+                    <label htmlFor="experience-image">Experience image</label>
                     <input
-                      ref={boatImageInputRef}
-                      id="boat-image"
+                      ref={experienceImageInputRef}
+                      id="experience-image"
                       type="file"
                       accept="image/*"
-                      onChange={handleBoatImageChange}
+                      onChange={handleexperienceImageChange}
                       disabled={isSaving}
                       required
                     />
@@ -721,10 +756,10 @@ function DashboardContent({
                   </div>
                 </div>
 
-                {boatImagePreview && (
+                {experienceImagePreview && (
                   <div className="experience-image-preview">
                     <img
-                      src={boatImagePreview}
+                      src={experienceImagePreview}
                       alt="Selected experience preview"
                     />
                   </div>
@@ -746,14 +781,14 @@ function DashboardContent({
                     className="secondary-button"
                     disabled={isSaving}
                     onClick={() => {
-                      clearBoatImage();
-                      setBoatName("");
-                      setBoatExperienceType("");
-                      setBoatLocation("");
-                      setBoatDescription("");
-                      setBoatPrice("");
+                      clearexperienceImage();
+                      setexperienceName("");
+                      setexperienceExperienceType("");
+                      setexperienceLocation("");
+                      setexperienceDescription("");
+                      setexperiencePrice("");
                       setMessage("");
-                      setShowAddBoatForm(false);
+                      setShowAddexperienceForm(false);
                     }}
                   >
                     Cancel
