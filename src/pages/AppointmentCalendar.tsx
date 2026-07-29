@@ -19,7 +19,23 @@ type Boat = {
   location: string;
   description?: string | null;
   ownerProfileId: string;
+  experienceType?: string | null;
 };
+
+const experiences = [
+  "Home",
+  "Boat",
+  "Golf",
+  "Fishing",
+  "Tennis",
+  "Swimming",
+  "Skiing",
+  "Hiking",
+  "Biking",
+  "Surfing",
+  "Pickle Ball",
+  "Beach",
+];
 
 type Appointment = {
   id: string;
@@ -103,6 +119,9 @@ function AppointmentCalendar() {
   const [isLoadingBoats, setIsLoadingBoats] = useState(true);
   const [boatLoadError, setBoatLoadError] = useState("");
 
+  const [selectedExperiences, setSelectedExperiences] = useState<string[]>([]);
+  const [locationFilter, setLocationFilter] = useState("");
+
   const [selectedBoat, setSelectedBoat] = useState<Boat | null>(null);
 
   const [appointmentTitle, setAppointmentTitle] = useState("");
@@ -149,6 +168,7 @@ function AppointmentCalendar() {
           location: boat.location,
           description: boat.description,
           ownerProfileId: boat.ownerProfileId,
+          experienceType: boat.experienceType,
         }));
 
         setBoats(databaseBoats);
@@ -175,6 +195,31 @@ function AppointmentCalendar() {
       console.error("Could not save appointments:", error);
     }
   }, [appointments]);
+
+  const toggleExperience = (experience: string) => {
+    setSelectedExperiences((current) =>
+      current.includes(experience)
+        ? current.filter((item) => item !== experience)
+        : [...current, experience],
+    );
+  };
+
+  const filteredBoats = boats.filter((boat) => {
+    const normalizedLocation = locationFilter.trim().toLowerCase();
+
+    const matchesLocation =
+      normalizedLocation === "" ||
+      boat.location.toLowerCase().includes(normalizedLocation);
+
+    const matchesExperience =
+      selectedExperiences.length === 0 ||
+      selectedExperiences.some(
+        (experience) =>
+          boat.experienceType?.toLowerCase() === experience.toLowerCase(),
+      );
+
+    return matchesLocation && matchesExperience;
+  });
 
   const openAppointmentForm = (boat: Boat) => {
     setSelectedBoat(boat);
@@ -262,6 +307,13 @@ function AppointmentCalendar() {
     try {
       setIsSending(true);
 
+      console.log("Selected boat before owner lookup:", selectedBoat);
+      console.log("Owner profile ID:", selectedBoat.ownerProfileId);
+
+      if (!selectedBoat.ownerProfileId) {
+        throw new Error("This boat does not have an owner profile ID.");
+      }
+
       const ownerProfileResult = await client.models.BoatOwnerProfile.get(
         {
           id: selectedBoat.ownerProfileId,
@@ -271,17 +323,48 @@ function AppointmentCalendar() {
         },
       );
 
+      console.log("Owner profile get result:", ownerProfileResult);
+
       if (ownerProfileResult.errors?.length) {
+        console.warn("Owner profile get errors:", ownerProfileResult.errors);
+      }
+
+      let ownerProfile = ownerProfileResult.data;
+
+      // Fallback: list the readable owner profiles and match the boat's
+      // ownerProfileId. This also helps when get() returns no readable data.
+      if (!ownerProfile?.email) {
+        const ownerProfilesResult = await client.models.BoatOwnerProfile.list({
+          authMode: "apiKey",
+        });
+
+        console.log("Owner profile list result:", ownerProfilesResult);
+
+        if (ownerProfilesResult.errors?.length) {
+          console.warn(
+            "Owner profile list errors:",
+            ownerProfilesResult.errors,
+          );
+        }
+
+        ownerProfile =
+          ownerProfilesResult.data.find(
+            (candidate) => candidate.id === selectedBoat.ownerProfileId,
+          ) ?? ownerProfile;
+      }
+
+      const boatOwnerEmail = ownerProfile?.email?.trim();
+
+      if (!boatOwnerEmail) {
+        console.error("Could not resolve boat owner email.", {
+          selectedBoat,
+          ownerProfile,
+        });
+
         throw new Error(
-          ownerProfileResult.errors.map((error) => error.message).join(", "),
+          `No readable owner email was found for owner profile ${selectedBoat.ownerProfileId}.`,
         );
       }
-
-      if (!ownerProfileResult.data?.email) {
-        throw new Error("The boat owner's email could not be found.");
-      }
-
-      const boatOwnerEmail = ownerProfileResult.data.email;
 
       await sendBookingEmailWithAppointment(
         appointmentDateTime,
@@ -327,11 +410,67 @@ function AppointmentCalendar() {
   return (
     <main className="boat-page">
       <section className="boat-header">
-        <p className="boat-eyebrow">Boat rentals</p>
+        <p className="boat-eyebrow">Experiences</p>
 
-        <h1>Choose Your Boat</h1>
+        <p>
+          Choose one or more experiences and enter a location to filter the
+          available experiences.
+        </p>
+      </section>
 
-        <p>Select a boat to choose your preferred appointment date and time.</p>
+      <section className="boat-filter-card">
+        <div className="boat-filter-header">
+          <h2>Choose Experiences</h2>
+        </div>
+
+        <div className="experience-filter-grid">
+          {experiences.map((experience) => {
+            const selected = selectedExperiences.includes(experience);
+            const checkboxId = `experience-${experience.replace(/\s+/g, "-").toLowerCase()}`;
+
+            return (
+              <label
+                key={experience}
+                htmlFor={checkboxId}
+                className="experience-checkbox"
+              >
+                <input
+                  id={checkboxId}
+                  type="checkbox"
+                  checked={selected}
+                  onChange={() => toggleExperience(experience)}
+                />
+
+                <span>{experience}</span>
+              </label>
+            );
+          })}
+        </div>
+      </section>
+
+      <section className="boat-filter-card">
+        <h2>Location</h2>
+
+        <input
+          type="text"
+          value={locationFilter}
+          onChange={(event) => setLocationFilter(event.target.value)}
+          placeholder="Enter a city, state, or area"
+          className="location-filter-input"
+        />
+
+        {(selectedExperiences.length > 0 || locationFilter.trim()) && (
+          <button
+            type="button"
+            className="clear-filters-button"
+            onClick={() => {
+              setSelectedExperiences([]);
+              setLocationFilter("");
+            }}
+          >
+            Clear filters
+          </button>
+        )}
       </section>
 
       {isLoadingBoats && (
@@ -348,9 +487,18 @@ function AppointmentCalendar() {
         <p className="boat-status-message">No boats are currently available.</p>
       )}
 
-      {!isLoadingBoats && !boatLoadError && boats.length > 0 && (
+      {!isLoadingBoats &&
+        !boatLoadError &&
+        boats.length > 0 &&
+        filteredBoats.length === 0 && (
+          <p className="boat-status-message">
+            No boats match the selected experience and location.
+          </p>
+        )}
+
+      {!isLoadingBoats && !boatLoadError && filteredBoats.length > 0 && (
         <section className="boat-grid">
-          {boats.map((boat) => (
+          {filteredBoats.map((boat) => (
             <article className="boat-card" key={boat.id}>
               <div className="boat-image-wrapper">
                 <BoatImage
@@ -374,6 +522,12 @@ function AppointmentCalendar() {
                   <span aria-hidden="true">📍</span>
                   {boat.location}
                 </p>
+
+                {boat.experienceType && (
+                  <p className="boat-experience-type">
+                    Experience: {boat.experienceType}
+                  </p>
+                )}
 
                 {boat.description && (
                   <p className="boat-description">{boat.description}</p>

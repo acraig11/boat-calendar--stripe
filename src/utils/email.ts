@@ -21,9 +21,9 @@ export async function sendBookingEmailWithAppointment(
     phoneNumber?: string;
     ownerEmail?: string;
   },
-  boat: string,
+  experience: string,
   location: string,
-  boatOwnerEmail: string,
+  experienceOwnerEmail: string,
 ) {
   if (!EMAILJS_SERVICE_ID || !EMAILJS_TEMPLATE_ID || !EMAILJS_PUBLIC_KEY) {
     throw new Error("EmailJS configuration is missing. Check your .env file.");
@@ -33,8 +33,8 @@ export async function sendBookingEmailWithAppointment(
     throw new Error("The appointment date or time is invalid.");
   }
 
-  if (!boatOwnerEmail.trim()) {
-    throw new Error("The boat owner's email address was not found.");
+  if (!experienceOwnerEmail.trim()) {
+    throw new Error("The experience owner's email address was not found.");
   }
 
   const fullName =
@@ -48,9 +48,9 @@ export async function sendBookingEmailWithAppointment(
   });
 
   const message = [
-    "Boat Appointment Request",
+    "Experience Appointment Request",
     "",
-    `Boat: ${boat || "Not set"}`,
+    `Experience: ${experience || "Not set"}`,
     `Location: ${location || "Not set"}`,
     "",
     `Name: ${fullName || "Not set"}`,
@@ -65,13 +65,13 @@ export async function sendBookingEmailWithAppointment(
     EMAILJS_SERVICE_ID,
     EMAILJS_TEMPLATE_ID,
     {
-      subject: "Boat Appointment Request",
+      subject: "Experience Appointment Request",
       message,
 
-      to_email: boatOwnerEmail,
+      to_email: experienceOwnerEmail,
       cc_email: "alan_craig@msn.com",
 
-      boat_name: boat,
+      experience_name: experience,
       location,
 
       customer_name: fullName,
@@ -86,7 +86,7 @@ export async function sendBookingEmailWithAppointment(
     },
   );
 
-  console.log("EmailJS booking result:", result);
+  console.log("EmailJS experience booking result:", result);
 
   if (result.status !== 200) {
     throw new Error(
@@ -96,6 +96,7 @@ export async function sendBookingEmailWithAppointment(
 
   return result;
 }
+
 const PRIZE_REDEMPTION_EMAIL =
   import.meta.env.VITE_PRIZE_REDEMPTION_EMAIL || "alan_craig@msn.com";
 
@@ -166,6 +167,68 @@ export async function sendPrizeRedemptionEmail(
       publicKey: EMAILJS_PUBLIC_KEY,
     },
   );
+
+  if (result.status !== 200) {
+    throw new Error(
+      `EmailJS failed. Status: ${result.status}, Text: ${result.text}`,
+    );
+  }
+
+  return result;
+}
+
+export async function sendPartnerRequestEmail({
+  name,
+  organization,
+  email,
+  phone,
+  note,
+}: {
+  name: string;
+  organization?: string;
+  email: string;
+  phone?: string;
+  note: string;
+}) {
+  if (!EMAILJS_SERVICE_ID || !EMAILJS_TEMPLATE_ID || !EMAILJS_PUBLIC_KEY) {
+    throw new Error("EmailJS configuration is missing. Check your .env file.");
+  }
+
+  const message = [
+    "New Partner Request",
+    "",
+    `Name: ${name.trim()}`,
+    `Organization: ${organization?.trim() || "Not set"}`,
+    `Email: ${email.trim()}`,
+    `Phone: ${phone?.trim() || "Not set"}`,
+    "",
+    "Note:",
+    note.trim(),
+  ].join("\n");
+
+  const result = await emailjs.send(
+    EMAILJS_SERVICE_ID,
+    EMAILJS_TEMPLATE_ID,
+    {
+      subject: "New Partner Request",
+      message,
+
+      to_email: "alan_craig@msn.com",
+      cc_email: "alan_craig@msn.com",
+
+      customer_name: name.trim(),
+      customer_email: email.trim(),
+      customer_phone: phone?.trim() ?? "",
+
+      organization: organization?.trim() ?? "",
+      note: note.trim(),
+    },
+    {
+      publicKey: EMAILJS_PUBLIC_KEY,
+    },
+  );
+
+  console.log("EmailJS partner result:", result);
 
   if (result.status !== 200) {
     throw new Error(

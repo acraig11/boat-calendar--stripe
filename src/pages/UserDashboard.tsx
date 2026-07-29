@@ -38,6 +38,7 @@ const emptyForm: ProfileForm = {
 
 function UserDashboard() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [availablePoints, setAvailablePoints] = useState(0);
 
   const [form, setForm] = useState<ProfileForm>(emptyForm);
 
@@ -58,6 +59,9 @@ function UserDashboard() {
 
       const currentUser = await getCurrentUser();
 
+      const signedInEmail =
+        currentUser.signInDetails?.loginId?.trim().toLowerCase() ?? "";
+
       const result = await client.models.Todo.list({
         filter: {
           userId: {
@@ -70,9 +74,66 @@ function UserDashboard() {
         throw new Error(result.errors.map((error) => error.message).join(", "));
       }
 
-      const userProfile = result.data[0] ?? null;
+      const userRecords = result.data;
+
+      const points = userRecords.reduce(
+        (sum, record) => sum + Number(record.rewardPoints ?? 0),
+        0,
+      );
+
+      setAvailablePoints(points);
+
+      const hasProfileFields = (record: UserProfile) =>
+        Boolean(
+          record.firstName ||
+          record.lastName ||
+          record.ownerEmail ||
+          record.phoneNumber ||
+          record.address ||
+          record.city ||
+          record.state ||
+          record.zip ||
+          record.apparelSize ||
+          record.apparelGender,
+        );
+
+      let profileRecords = userRecords.filter(hasProfileFields);
+
+      // Older profile records may not have userId.
+      // If no profile was found by userId, fall back to the signed-in email.
+      if (profileRecords.length === 0 && signedInEmail) {
+        const emailResult = await client.models.Todo.list({
+          filter: {
+            ownerEmail: {
+              eq: signedInEmail,
+            },
+          },
+        });
+
+        if (emailResult.errors?.length) {
+          throw new Error(
+            emailResult.errors.map((error) => error.message).join(", "),
+          );
+        }
+
+        profileRecords = emailResult.data.filter(hasProfileFields);
+      }
+
+      const userProfile =
+        [...profileRecords].sort(
+          (a, b) =>
+            new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
+        )[0] ?? null;
 
       setProfile(userProfile);
+
+      console.log("Signed-in user:", {
+        userId: currentUser.userId,
+        email: signedInEmail,
+      });
+      console.log("User point records:", userRecords);
+      console.log("Available points:", points);
+      console.log("Matching profile:", userProfile);
 
       if (userProfile) {
         setForm({
@@ -92,13 +153,11 @@ function UserDashboard() {
           apparelGender: userProfile.apparelGender ?? "",
         });
 
-        setMessage("Profile loaded.");
+        setMessage("Profile and points loaded.");
       } else {
-        const email = currentUser.signInDetails?.loginId?.trim() ?? "";
-
         setForm({
           ...emptyForm,
-          ownerEmail: email,
+          ownerEmail: signedInEmail,
         });
 
         setIsEditing(true);
@@ -207,7 +266,9 @@ function UserDashboard() {
 
       const currentUser = await getCurrentUser();
 
-      const signedInEmail = currentUser.signInDetails?.loginId?.trim();
+      const signedInEmail = currentUser.signInDetails?.loginId
+        ?.trim()
+        .toLowerCase();
 
       const profileData = {
         firstName: trimmedFirstName,
@@ -226,6 +287,7 @@ function UserDashboard() {
       if (profile?.id) {
         const result = await client.models.Todo.update({
           id: profile.id,
+          userId: currentUser.userId,
           ...profileData,
         });
 
@@ -302,7 +364,7 @@ function UserDashboard() {
         <div style={styles.rewardBox}>
           <div style={styles.rewardLabel}>Available Reward Points</div>
 
-          <div style={styles.rewardPoints}>{profile?.rewardPoints ?? 0}</div>
+          <div style={styles.rewardPoints}>{availablePoints}</div>
         </div>
       </section>
 

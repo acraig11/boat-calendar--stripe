@@ -50,7 +50,7 @@ const schema = a.schema({
       imageUrl: a.string(),
 
       ownerProfileId: a.id().required(),
-
+      experienceType: a.string(),
       ownerProfile: a.belongsTo("BoatOwnerProfile", "ownerProfileId"),
 
       bookings: a.hasMany("Booking", "boatId"),

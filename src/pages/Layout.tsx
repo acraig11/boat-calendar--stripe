@@ -10,7 +10,7 @@ export default function Layout() {
       </main>
 
       <footer>
-        <p>Boat Booking</p>
+        <p>@2026 Coast LifeLLC</p>
       </footer>
     </div>
   );

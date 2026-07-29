@@ -21,10 +21,26 @@ const ALLOWED_IMAGE_TYPES = [
   "image/gif",
 ];
 
+const EXPERIENCE_TYPES = [
+  "Home",
+  "Boat",
+  "Golf",
+  "Fishing",
+  "Tennis",
+  "Swimming",
+  "Skiing",
+  "Hiking",
+  "Biking",
+  "Surfing",
+  "Pickle Ball",
+  "Beach",
+];
+
 export default function AddBoat() {
   const [profile, setProfile] = useState<OwnerProfile | null>(null);
 
   const [name, setName] = useState("");
+  const [experienceType, setExperienceType] = useState("");
   const [location, setLocation] = useState("");
   const [description, setDescription] = useState("");
   const [estimatedPrice, setEstimatedPrice] = useState("");
@@ -59,7 +75,7 @@ export default function AddBoat() {
       }
     }
 
-    loadProfile();
+    void loadProfile();
   }, []);
 
   useEffect(() => {
@@ -121,9 +137,7 @@ export default function AddBoat() {
 
   function createSafeFileName(file: File) {
     const originalExtension = file.name.split(".").pop()?.toLowerCase() ?? "";
-
     const safeExtension = originalExtension.replace(/[^a-z0-9]/g, "");
-
     const extension = safeExtension || getExtensionFromType(file.type);
 
     return `${crypto.randomUUID()}.${extension}`;
@@ -133,13 +147,10 @@ export default function AddBoat() {
     switch (contentType) {
       case "image/png":
         return "png";
-
       case "image/webp":
         return "webp";
-
       case "image/gif":
         return "gif";
-
       default:
         return "jpg";
     }
@@ -150,20 +161,16 @@ export default function AddBoat() {
 
     const result = await uploadData({
       path: ({ identityId }) => `boat-images/${identityId}/${fileName}`,
-
       data: file,
-
       options: {
         contentType: file.type,
         preventOverwrite: true,
-
         onProgress: ({ transferredBytes, totalBytes }) => {
           if (!totalBytes) {
             return;
           }
 
           const percentage = Math.round((transferredBytes / totalBytes) * 100);
-
           setUploadProgress(percentage);
         },
       },
@@ -191,9 +198,15 @@ export default function AddBoat() {
     const trimmedName = name.trim();
     const trimmedLocation = location.trim();
     const trimmedDescription = description.trim();
+    const trimmedExperienceType = experienceType.trim();
 
     if (!trimmedName) {
       setMessage("Enter the boat name.");
+      return;
+    }
+
+    if (!trimmedExperienceType) {
+      setMessage("Select an experience type.");
       return;
     }
 
@@ -225,13 +238,11 @@ export default function AddBoat() {
 
       const { data, errors } = await client.models.Boat.create({
         name: trimmedName,
+        experienceType: trimmedExperienceType,
         location: trimmedLocation,
         description: trimmedDescription,
         estimatedPrice: numericPrice,
-
-        // This is the permanent Amplify Storage path.
         imageUrl: uploadedImagePath,
-
         ownerProfileId: profile.id,
       });
 
@@ -244,6 +255,7 @@ export default function AddBoat() {
       }
 
       setName("");
+      setExperienceType("");
       setLocation("");
       setDescription("");
       setEstimatedPrice("");
@@ -253,10 +265,6 @@ export default function AddBoat() {
     } catch (error) {
       console.error(error);
 
-      /*
-       * If the image uploaded but the database record failed,
-       * remove the unused image from Storage.
-       */
       if (uploadedImagePath) {
         try {
           await remove({
@@ -280,14 +288,13 @@ export default function AddBoat() {
 
   return (
     <main>
-      <h1>Add Boat this is the new boat page </h1>
+      <h1>Add Boat this is the new boat page</h1>
 
       {!profile && <p>You must create your owner profile first.</p>}
 
       <form onSubmit={handleSubmit}>
         <div>
           <label htmlFor="boat-name">Boat name</label>
-
           <input
             id="boat-name"
             value={name}
@@ -298,8 +305,25 @@ export default function AddBoat() {
         </div>
 
         <div>
-          <label htmlFor="boat-location">Location</label>
+          <label htmlFor="experience-type">Experience type</label>
+          <select
+            id="experience-type"
+            value={experienceType}
+            onChange={(event) => setExperienceType(event.target.value)}
+            disabled={isSubmitting}
+            required
+          >
+            <option value="">Choose an experience</option>
+            {EXPERIENCE_TYPES.map((experience) => (
+              <option key={experience} value={experience}>
+                {experience}
+              </option>
+            ))}
+          </select>
+        </div>
 
+        <div>
+          <label htmlFor="boat-location">Location</label>
           <input
             id="boat-location"
             value={location}
@@ -311,7 +335,6 @@ export default function AddBoat() {
 
         <div>
           <label htmlFor="boat-description">Description</label>
-
           <textarea
             id="boat-description"
             value={description}
@@ -322,7 +345,6 @@ export default function AddBoat() {
 
         <div>
           <label htmlFor="boat-price">Estimated price</label>
-
           <input
             id="boat-price"
             type="number"
@@ -335,26 +357,23 @@ export default function AddBoat() {
         </div>
 
         <div>
-          <div>
-            <label htmlFor="boat-image">Choose a boat image</label>
+          <label htmlFor="boat-image">Choose a boat image</label>
+          <input
+            ref={fileInputRef}
+            id="boat-image"
+            name="boat-image"
+            type="file"
+            accept="image/*"
+            onChange={handleImageChange}
+            disabled={isSubmitting}
+            required
+          />
 
-            <input
-              ref={fileInputRef}
-              id="boat-image"
-              name="boat-image"
-              type="file"
-              accept="image/*"
-              onChange={handleImageChange}
-              disabled={isSubmitting}
-              required
-            />
-
-            {imageFile && (
-              <p>
-                Selected: <strong>{imageFile.name}</strong>
-              </p>
-            )}
-          </div>
+          {imageFile && (
+            <p>
+              Selected: <strong>{imageFile.name}</strong>
+            </p>
+          )}
         </div>
 
         {imagePreview && (
