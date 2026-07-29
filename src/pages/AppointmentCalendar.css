@@ -2,31 +2,31 @@
   box-sizing: border-box;
 }
 
-.boat-page {
+.experience-page {
   min-height: 100vh;
   padding: 48px 24px;
   color: #172033;
   background: linear-gradient(180deg, #eaf7ff 0%, #f7fbff 45%, #ffffff 100%);
 }
 
-.boat-header {
+.experience-header {
   max-width: 760px;
   margin: 0 auto 36px;
   text-align: center;
 }
 
-.boat-header h1 {
+.experience-header h1 {
   margin: 8px 0 12px;
   font-size: clamp(2rem, 5vw, 3.5rem);
 }
 
-.boat-header > p:last-child {
+.experience-header > p:last-child {
   margin: 0;
   color: #5b6473;
   font-size: 1.05rem;
 }
 
-.boat-eyebrow {
+.experience-eyebrow {
   margin: 0;
   color: #0877a8;
   font-size: 0.85rem;
@@ -35,7 +35,7 @@
   text-transform: uppercase;
 }
 
-.boat-grid {
+.experience-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 24px;
@@ -43,7 +43,7 @@
   margin: 0 auto;
 }
 
-.boat-card {
+.experience-card {
   overflow: hidden;
   background: #ffffff;
   border: 1px solid #dce8ef;
@@ -54,26 +54,26 @@
     box-shadow 180ms ease;
 }
 
-.boat-card:hover {
+.experience-card:hover {
   transform: translateY(-5px);
   box-shadow: 0 18px 40px rgba(31, 73, 96, 0.18);
 }
 
-.boat-image-wrapper {
+.experience-image-wrapper {
   position: relative;
   height: 240px;
   overflow: hidden;
   background: #dcebf3;
 }
 
-.boat-image {
+.experience-image {
   width: 100%;
   height: 100%;
   display: block;
   object-fit: cover;
 }
 
-.boat-price {
+.experience-price {
   position: absolute;
   right: 14px;
   bottom: 14px;
@@ -85,21 +85,21 @@
   font-weight: 800;
 }
 
-.boat-price small {
+.experience-price small {
   font-size: 0.72rem;
   font-weight: 500;
 }
 
-.boat-card-content {
+.experience-card-content {
   padding: 22px;
 }
 
-.boat-card-content h2 {
+.experience-card-content h2 {
   margin: 0 0 10px;
   font-size: 1.45rem;
 }
 
-.boat-location {
+.experience-location {
   display: flex;
   gap: 7px;
   align-items: center;
@@ -108,7 +108,7 @@
   font-weight: 700;
 }
 
-.boat-description {
+.experience-description {
   min-height: 48px;
   margin: 0 0 22px;
   color: #606a78;
@@ -169,7 +169,7 @@
   line-height: 1;
 }
 
-.dialog-boat-image {
+.dialog-experience-image {
   width: 100%;
   height: 185px;
   display: block;
@@ -182,14 +182,14 @@
   margin: 0 0 5px;
 }
 
-.selected-boat-name {
+.selected-experience-name {
   margin: 0;
   color: #0877a8;
   font-size: 1.1rem;
   font-weight: 800;
 }
 
-.selected-boat-details {
+.selected-experience-details {
   margin: 5px 0 22px;
   color: #667080;
 }
@@ -335,22 +335,22 @@
 }
 
 @media (max-width: 850px) {
-  .boat-grid {
+  .experience-grid {
     grid-template-columns: 1fr;
     max-width: 560px;
   }
 
-  .boat-image-wrapper {
+  .experience-image-wrapper {
     height: 280px;
   }
 }
 
 @media (max-width: 520px) {
-  .boat-page {
+  .experience-page {
     padding: 32px 14px;
   }
 
-  .boat-image-wrapper {
+  .experience-image-wrapper {
     height: 215px;
   }
 

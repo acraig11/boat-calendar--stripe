@@ -11,7 +11,7 @@ import { client } from "../lib/amplifyClient";
 import BookingContactForm, {
   type BookingContactData,
 } from "./BookingContactForm";
-type Boat = {
+type Experience = {
   id: string;
   name: string;
   imageUrl?: string | null;
@@ -39,8 +39,8 @@ const experiences = [
 
 type Appointment = {
   id: string;
-  boatId: string;
-  boatName: string;
+  experienceId: string;
+  experienceName: string;
   title: string;
   date: string;
   time: string;
@@ -58,23 +58,25 @@ function formatDateForStorage(date: Date): string {
   return `${year}-${month}-${day}`;
 }
 
-function BoatImage({
+function ExperienceImage({
   imagePath,
-  boatName,
+  experienceName,
   className,
 }: {
   imagePath?: string | null;
-  boatName: string;
+  experienceName: string;
   className: string;
 }) {
-  const [displayUrl, setDisplayUrl] = useState("/images/boat-placeholder.png");
+  const [displayUrl, setDisplayUrl] = useState(
+    "/images/experience-placeholder.png",
+  );
 
   useEffect(() => {
     let isActive = true;
 
     async function loadImage() {
       if (!imagePath) {
-        setDisplayUrl("/images/boat-placeholder.png");
+        setDisplayUrl("/images/experience-placeholder.png");
         return;
       }
 
@@ -87,10 +89,10 @@ function BoatImage({
           setDisplayUrl(result.url.toString());
         }
       } catch (error) {
-        console.error("Could not load boat image:", error);
+        console.error("Could not load experience image:", error);
 
         if (isActive) {
-          setDisplayUrl("/images/boat-placeholder.png");
+          setDisplayUrl("/images/experience-placeholder.png");
         }
       }
     }
@@ -106,23 +108,24 @@ function BoatImage({
     <img
       className={className}
       src={displayUrl}
-      alt={boatName}
+      alt={experienceName}
       onError={(event) => {
-        event.currentTarget.src = "/images/boat-placeholder.png";
+        event.currentTarget.src = "/images/experience-placeholder.png";
       }}
     />
   );
 }
 
 function AppointmentCalendar() {
-  const [boats, setBoats] = useState<Boat[]>([]);
-  const [isLoadingBoats, setIsLoadingBoats] = useState(true);
-  const [boatLoadError, setBoatLoadError] = useState("");
+  const [experienceRecords, setExperienceRecords] = useState<Experience[]>([]);
+  const [isLoadingExperiences, setIsLoadingExperiences] = useState(true);
+  const [experienceLoadError, setExperienceLoadError] = useState("");
 
   const [selectedExperiences, setSelectedExperiences] = useState<string[]>([]);
   const [locationFilter, setLocationFilter] = useState("");
 
-  const [selectedBoat, setSelectedBoat] = useState<Boat | null>(null);
+  const [selectedExperience, setSelectedExperience] =
+    useState<Experience | null>(null);
 
   const [appointmentTitle, setAppointmentTitle] = useState("");
 
@@ -136,7 +139,7 @@ function AppointmentCalendar() {
   const datePickerRef = useRef<DatePicker>(null);
   const [appointments, setAppointments] = useState<Appointment[]>(() => {
     try {
-      const saved = localStorage.getItem("boatAppointments");
+      const saved = localStorage.getItem("experienceAppointments");
 
       return saved ? JSON.parse(saved) : [];
     } catch (error) {
@@ -147,10 +150,10 @@ function AppointmentCalendar() {
   });
 
   useEffect(() => {
-    async function loadBoats() {
+    async function loadExperiences() {
       try {
-        setIsLoadingBoats(true);
-        setBoatLoadError("");
+        setIsLoadingExperiences(true);
+        setExperienceLoadError("");
 
         const { data, errors } = await client.models.Experience.list({
           authMode: "apiKey",
@@ -160,37 +163,40 @@ function AppointmentCalendar() {
           throw new Error(errors.map((error) => error.message).join(", "));
         }
 
-        const databaseBoats: Boat[] = data.map((boat) => ({
-          id: boat.id,
-          name: boat.name,
-          imageUrl: boat.imageUrl,
-          estimatedPrice: boat.estimatedPrice,
-          location: boat.location,
-          description: boat.description,
-          ownerProfileId: boat.ownerProfileId,
-          experienceType: boat.experienceType,
+        const databaseExperiences: Experience[] = data.map((experience) => ({
+          id: experience.id,
+          name: experience.name,
+          imageUrl: experience.imageUrl,
+          estimatedPrice: experience.estimatedPrice,
+          location: experience.location,
+          description: experience.description,
+          ownerProfileId: experience.ownerProfileId,
+          experienceType: experience.experienceType,
         }));
 
-        setBoats(databaseBoats);
+        setExperienceRecords(databaseExperiences);
       } catch (error) {
-        console.error("Could not load boats:", error);
+        console.error("Could not load experiences:", error);
 
-        setBoatLoadError(
+        setExperienceLoadError(
           error instanceof Error
             ? error.message
-            : "The boats could not be loaded.",
+            : "The experiences could not be loaded.",
         );
       } finally {
-        setIsLoadingBoats(false);
+        setIsLoadingExperiences(false);
       }
     }
 
-    void loadBoats();
+    void loadExperiences();
   }, []);
 
   useEffect(() => {
     try {
-      localStorage.setItem("boatAppointments", JSON.stringify(appointments));
+      localStorage.setItem(
+        "experienceAppointments",
+        JSON.stringify(appointments),
+      );
     } catch (error) {
       console.error("Could not save appointments:", error);
     }
@@ -204,26 +210,27 @@ function AppointmentCalendar() {
     );
   };
 
-  const filteredBoats = boats.filter((boat) => {
+  const filteredExperiences = experienceRecords.filter((experience) => {
     const normalizedLocation = locationFilter.trim().toLowerCase();
 
     const matchesLocation =
       normalizedLocation === "" ||
-      boat.location.toLowerCase().includes(normalizedLocation);
+      experience.location.toLowerCase().includes(normalizedLocation);
 
     const matchesExperience =
       selectedExperiences.length === 0 ||
       selectedExperiences.some(
-        (experience) =>
-          boat.experienceType?.toLowerCase() === experience.toLowerCase(),
+        (selectedType) =>
+          experience.experienceType?.toLowerCase() ===
+          selectedType.toLowerCase(),
       );
 
     return matchesLocation && matchesExperience;
   });
 
-  const openAppointmentForm = (boat: Boat) => {
-    setSelectedBoat(boat);
-    setAppointmentTitle(`${boat.name} reservation`);
+  const openAppointmentForm = (experience: Experience) => {
+    setSelectedExperience(experience);
+    setAppointmentTitle(`${experience.name} reservation`);
     setSelectedDate(null);
     setSelectedTime("09:00");
     setShowContactForm(false);
@@ -234,7 +241,7 @@ function AppointmentCalendar() {
       return;
     }
 
-    setSelectedBoat(null);
+    setSelectedExperience(null);
     setAppointmentTitle("");
     setSelectedDate(null);
     setSelectedTime("09:00");
@@ -256,8 +263,8 @@ function AppointmentCalendar() {
   };
 
   const sendAppointmentRequest = async (contact: BookingContactData) => {
-    if (!selectedBoat) {
-      alert("Please select a boat.");
+    if (!selectedExperience) {
+      alert("Please select an experience.");
       return;
     }
 
@@ -293,8 +300,8 @@ function AppointmentCalendar() {
 
     const newAppointment: Appointment = {
       id: crypto.randomUUID(),
-      boatId: selectedBoat.id,
-      boatName: selectedBoat.name,
+      experienceId: selectedExperience.id,
+      experienceName: selectedExperience.name,
       title: appointmentTitle.trim(),
       date: dateString,
       time: selectedTime,
@@ -307,16 +314,19 @@ function AppointmentCalendar() {
     try {
       setIsSending(true);
 
-      console.log("Selected boat before owner lookup:", selectedBoat);
-      console.log("Owner profile ID:", selectedBoat.ownerProfileId);
+      console.log(
+        "Selected experience before owner lookup:",
+        selectedExperience,
+      );
+      console.log("Owner profile ID:", selectedExperience.ownerProfileId);
 
-      if (!selectedBoat.ownerProfileId) {
-        throw new Error("This boat does not have an owner profile ID.");
+      if (!selectedExperience.ownerProfileId) {
+        throw new Error("This experience does not have an owner profile ID.");
       }
 
       const ownerProfileResult = await client.models.ExperienceOwnerProfile.get(
         {
-          id: selectedBoat.ownerProfileId,
+          id: selectedExperience.ownerProfileId,
         },
         {
           authMode: "apiKey",
@@ -331,7 +341,7 @@ function AppointmentCalendar() {
 
       let ownerProfile = ownerProfileResult.data;
 
-      // Fallback: list the readable owner profiles and match the boat's
+      // Fallback: list the readable owner profiles and match the experiences's
       // ownerProfileId. This also helps when get() returns no readable data.
       if (!ownerProfile?.email) {
         const ownerProfilesResult =
@@ -350,29 +360,29 @@ function AppointmentCalendar() {
 
         ownerProfile =
           ownerProfilesResult.data.find(
-            (candidate) => candidate.id === selectedBoat.ownerProfileId,
+            (candidate) => candidate.id === selectedExperience.ownerProfileId,
           ) ?? ownerProfile;
       }
 
-      const boatOwnerEmail = ownerProfile?.email?.trim();
+      const experienceOwnerEmail = ownerProfile?.email?.trim();
 
-      if (!boatOwnerEmail) {
-        console.error("Could not resolve boat owner email.", {
-          selectedBoat,
+      if (!experienceOwnerEmail) {
+        console.error("Could not resolve experience owner email.", {
+          selectedExperience,
           ownerProfile,
         });
 
         throw new Error(
-          `No readable owner email was found for owner profile ${selectedBoat.ownerProfileId}.`,
+          `No readable owner email was found for owner profile ${selectedExperience.ownerProfileId}.`,
         );
       }
 
       await sendBookingEmailWithAppointment(
         appointmentDateTime,
         profile,
-        selectedBoat.name,
-        selectedBoat.location,
-        boatOwnerEmail,
+        selectedExperience.name,
+        selectedExperience.location,
+        experienceOwnerEmail,
       );
 
       setAppointments((currentAppointments) => [
@@ -380,9 +390,9 @@ function AppointmentCalendar() {
         newAppointment,
       ]);
 
-      alert("Your boat appointment request was sent.");
+      alert("Your experience appointment request was sent.");
 
-      setSelectedBoat(null);
+      setSelectedExperience(null);
       setAppointmentTitle("");
       setSelectedDate(null);
       setSelectedTime("09:00");
@@ -409,9 +419,9 @@ function AppointmentCalendar() {
   };
 
   return (
-    <main className="boat-page">
-      <section className="boat-header">
-        <p className="boat-eyebrow">Experiences</p>
+    <main className="experience-page">
+      <section className="experience-header">
+        <p className="experience-eyebrow">Experiences</p>
 
         <p>
           Choose one or more experiences and enter a location to filter the
@@ -419,8 +429,8 @@ function AppointmentCalendar() {
         </p>
       </section>
 
-      <section className="boat-filter-card">
-        <div className="boat-filter-header">
+      <section className="experience-filter-card">
+        <div className="experience-filter-header">
           <h2>Choose Experiences</h2>
         </div>
 
@@ -449,7 +459,7 @@ function AppointmentCalendar() {
         </div>
       </section>
 
-      <section className="boat-filter-card">
+      <section className="experience-filter-card">
         <h2>Location</h2>
 
         <input
@@ -474,80 +484,88 @@ function AppointmentCalendar() {
         )}
       </section>
 
-      {isLoadingBoats && (
-        <p className="boat-status-message">Loading boats...</p>
+      {isLoadingExperiences && (
+        <p className="experience-status-message">Loading experiences...</p>
       )}
 
-      {boatLoadError && (
-        <p className="boat-status-message boat-error">
-          Could not load boats: {boatLoadError}
+      {experienceLoadError && (
+        <p className="experience-status-message experience-error">
+          Could not load experiences: {experienceLoadError}
         </p>
       )}
 
-      {!isLoadingBoats && !boatLoadError && boats.length === 0 && (
-        <p className="boat-status-message">No boats are currently available.</p>
-      )}
-
-      {!isLoadingBoats &&
-        !boatLoadError &&
-        boats.length > 0 &&
-        filteredBoats.length === 0 && (
-          <p className="boat-status-message">
-            No boats match the selected experience and location.
+      {!isLoadingExperiences &&
+        !experienceLoadError &&
+        experienceRecords.length === 0 && (
+          <p className="experience-status-message">
+            No experiences are currently available.
           </p>
         )}
 
-      {!isLoadingBoats && !boatLoadError && filteredBoats.length > 0 && (
-        <section className="boat-grid">
-          {filteredBoats.map((boat) => (
-            <article className="boat-card" key={boat.id}>
-              <div className="boat-image-wrapper">
-                <BoatImage
-                  className="boat-image"
-                  imagePath={boat.imageUrl}
-                  boatName={boat.name}
-                />
+      {!isLoadingExperiences &&
+        !experienceLoadError &&
+        experienceRecords.length > 0 &&
+        filteredExperiences.length === 0 && (
+          <p className="experience-status-message">
+            No experiences match the selected filters.
+          </p>
+        )}
 
-                {boat.estimatedPrice != null && (
-                  <span className="boat-price">
-                    ${boat.estimatedPrice}
-                    <small> estimated</small>
-                  </span>
-                )}
-              </div>
+      {!isLoadingExperiences &&
+        !experienceLoadError &&
+        filteredExperiences.length > 0 && (
+          <section className="experience-grid">
+            {filteredExperiences.map((experience) => (
+              <article className="experience-card" key={experience.id}>
+                <div className="experience-image-wrapper">
+                  <ExperienceImage
+                    className="experience-image"
+                    imagePath={experience.imageUrl}
+                    experienceName={experience.name}
+                  />
 
-              <div className="boat-card-content">
-                <h2>{boat.name}</h2>
+                  {experience.estimatedPrice != null && (
+                    <span className="experience-price">
+                      ${experience.estimatedPrice}
+                      <small> estimated</small>
+                    </span>
+                  )}
+                </div>
 
-                <p className="boat-location">
-                  <span aria-hidden="true">📍</span>
-                  {boat.location}
-                </p>
+                <div className="experience-card-content">
+                  <h2>{experience.name}</h2>
 
-                {boat.experienceType && (
-                  <p className="boat-experience-type">
-                    Experience: {boat.experienceType}
+                  <p className="experience-location">
+                    <span aria-hidden="true">📍</span>
+                    {experience.location}
                   </p>
-                )}
 
-                {boat.description && (
-                  <p className="boat-description">{boat.description}</p>
-                )}
+                  {experience.experienceType && (
+                    <p className="experience-experience-type">
+                      Experience: {experience.experienceType}
+                    </p>
+                  )}
 
-                <button
-                  type="button"
-                  className="appointment-button"
-                  onClick={() => openAppointmentForm(boat)}
-                >
-                  Select date and time
-                </button>
-              </div>
-            </article>
-          ))}
-        </section>
-      )}
+                  {experience.description && (
+                    <p className="experience-description">
+                      {experience.description}
+                    </p>
+                  )}
 
-      {selectedBoat && (
+                  <button
+                    type="button"
+                    className="appointment-button"
+                    onClick={() => openAppointmentForm(experience)}
+                  >
+                    Select date and time
+                  </button>
+                </div>
+              </article>
+            ))}
+          </section>
+        )}
+
+      {selectedExperience && (
         <div
           className="appointment-overlay"
           onMouseDown={(event) => {
@@ -569,23 +587,25 @@ function AppointmentCalendar() {
 
             {!showContactForm ? (
               <>
-                <BoatImage
-                  className="dialog-boat-image"
-                  imagePath={selectedBoat.imageUrl}
-                  boatName={selectedBoat.name}
+                <ExperienceImage
+                  className="dialog-experience-image"
+                  imagePath={selectedExperience.imageUrl}
+                  experienceName={selectedExperience.name}
                 />
 
                 <h2>Create Appointment</h2>
 
-                <p className="selected-boat-name">{selectedBoat.name}</p>
+                <p className="selected-experience-name">
+                  {selectedExperience.name}
+                </p>
 
-                <p className="selected-boat-details">
-                  {selectedBoat.location}
+                <p className="selected-experience-details">
+                  {selectedExperience.location}
 
-                  {selectedBoat.estimatedPrice != null && (
+                  {selectedExperience.estimatedPrice != null && (
                     <>
                       {" · "}
-                      Approximately ${selectedBoat.estimatedPrice}
+                      Approximately ${selectedExperience.estimatedPrice}
                     </>
                   )}
                 </p>
