@@ -22,7 +22,6 @@ function App() {
         <Route path="owner" element={<OwnerDashboard />} />
         <Route path="contact" element={<Contact />} />
         <Route path="freeMerchandise" element={<FreeMerch />} />
-
         <Route path="user" element={<UserDashboard />} />
         <Route path="prizes" element={<Prizes />} />
         <Route path="partner" element={<Partner />} />
