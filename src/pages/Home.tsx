@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import SocialMedia from "../components/SocialMedia";
 
 /**
  * Fetch a YouTube embed URL from a GitHub raw text file
@@ -110,6 +111,7 @@ export default function Home() {
         {videoUrl1 && <Video url={videoUrl1} title="Featured Video 1" />}
         {videoUrl2 && <Video url={videoUrl2} title="Featured Video 2" />}
       </div>
+      <SocialMedia />
     </div>
   );
 }
