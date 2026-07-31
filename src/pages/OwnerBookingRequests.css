@@ -1,0 +1,90 @@
+/* Pending booking requests */
+.booking-requests-header,
+.booking-request-main {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.booking-requests-header {
+  margin-bottom: 20px;
+}
+
+.booking-request-list {
+  display: grid;
+  gap: 16px;
+}
+
+.booking-request-card {
+  padding: 18px;
+  border: 1px solid #dfe5ea;
+  border-radius: 14px;
+  background: #fff;
+}
+
+.booking-request-main h3,
+.booking-request-date {
+  margin-top: 0;
+}
+
+.booking-request-date {
+  margin-bottom: 0;
+  font-weight: 600;
+}
+
+.pending-booking-badge {
+  flex: 0 0 auto;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: #fff3cd;
+  color: #7a5200;
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
+.booking-request-details {
+  display: grid;
+  gap: 10px;
+  margin: 18px 0;
+}
+
+.booking-request-details div {
+  display: grid;
+  grid-template-columns: 90px minmax(0, 1fr);
+  gap: 12px;
+}
+
+.booking-request-details dt {
+  font-weight: 700;
+}
+
+.booking-request-details dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.booking-request-warning {
+  padding: 10px;
+  border-radius: 8px;
+  background: #fff3cd;
+  color: #7a5200;
+}
+
+.approve-booking-button {
+  background: #1f7a4d;
+  color: #fff;
+}
+
+@media (max-width: 620px) {
+  .booking-requests-header,
+  .booking-request-main {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .booking-request-details div {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+}

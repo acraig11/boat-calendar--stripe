@@ -95,6 +95,7 @@ const schema = a.schema({
     })
     .authorization((allow) => [
       allow.ownerDefinedIn("owner"),
+      allow.authenticated().to(["read", "update"]),
       allow.publicApiKey().to(["create"]),
     ]),
 
@@ -135,6 +136,7 @@ const schema = a.schema({
     ])
     .authorization((allow) => [
       allow.ownerDefinedIn("owner"),
+      allow.authenticated().to(["read", "update"]),
       allow.publicApiKey().to(["create", "read"]),
     ]),
 });

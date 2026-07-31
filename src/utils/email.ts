@@ -97,6 +97,136 @@ export async function sendBookingEmailWithAppointment(
   return result;
 }
 
+export type BookingDecisionStatus = "ACCEPTED" | "REJECTED";
+
+export async function sendBookingDecisionEmail({
+  customerName,
+  customerEmail,
+  experienceName,
+  location,
+  appointmentDateTime,
+  status,
+  ownerName,
+  ownerEmail,
+  ownerPhone,
+}: {
+  customerName: string;
+  customerEmail: string;
+  experienceName: string;
+  location?: string | null;
+  appointmentDateTime: string;
+  status: BookingDecisionStatus;
+  ownerName?: string | null;
+  ownerEmail?: string | null;
+  ownerPhone?: string | null;
+}) {
+  if (!EMAILJS_SERVICE_ID || !EMAILJS_TEMPLATE_ID || !EMAILJS_PUBLIC_KEY) {
+    throw new Error("EmailJS configuration is missing. Check your .env file.");
+  }
+
+  const recipientEmail = customerEmail.trim();
+
+  if (!recipientEmail) {
+    throw new Error("The customer's email address was not found.");
+  }
+
+  const appointment = new Date(appointmentDateTime);
+
+  if (Number.isNaN(appointment.getTime())) {
+    throw new Error("The booking date or time is invalid.");
+  }
+
+  const approved = status === "ACCEPTED";
+  const appointmentDate = formatDateForEmail(appointment);
+
+  const appointmentTime = appointment.toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+
+  const subject = approved
+    ? "Your Coast Life Booking Was Approved"
+    : "Your Coast Life Booking Was Not Approved";
+
+  const messageLines = [
+    `Hello ${customerName.trim() || "Customer"},`,
+    "",
+    approved
+      ? "Great news! Your booking request has been approved."
+      : "Unfortunately, your booking request was not approved.",
+    "",
+    `Experience: ${experienceName || "Not set"}`,
+    `Location: ${location || "Not set"}`,
+    `Appointment Date: ${appointmentDate}`,
+    `Appointment Time: ${appointmentTime}`,
+  ];
+
+  if (approved) {
+    messageLines.push("", "Experience Owner Contact:");
+
+    if (ownerName?.trim()) {
+      messageLines.push(`Name: ${ownerName.trim()}`);
+    }
+
+    if (ownerEmail?.trim()) {
+      messageLines.push(`Email: ${ownerEmail.trim()}`);
+    }
+
+    if (ownerPhone?.trim()) {
+      messageLines.push(`Phone: ${ownerPhone.trim()}`);
+    }
+
+    messageLines.push("", "We look forward to seeing you.");
+  } else {
+    messageLines.push(
+      "",
+      "Please return to Coast Life to select another experience or appointment time.",
+    );
+  }
+
+  const message = messageLines.join("\n");
+
+  const result = await emailjs.send(
+    EMAILJS_SERVICE_ID,
+    EMAILJS_TEMPLATE_ID,
+    {
+      subject,
+      message,
+
+      to_email: recipientEmail,
+      cc_email: "alan_craig@msn.com",
+
+      customer_name: customerName.trim(),
+      customer_email: recipientEmail,
+
+      experience_name: experienceName,
+      location: location ?? "",
+
+      appointment_date: appointmentDate,
+      appointment_time: appointmentTime,
+
+      booking_status: status,
+
+      owner_name: ownerName?.trim() ?? "",
+      owner_email: ownerEmail?.trim() ?? "",
+      owner_phone: ownerPhone?.trim() ?? "",
+    },
+    {
+      publicKey: EMAILJS_PUBLIC_KEY,
+    },
+  );
+
+  console.log("EmailJS booking decision result:", result);
+
+  if (result.status !== 200) {
+    throw new Error(
+      `EmailJS failed. Status: ${result.status}, Text: ${result.text}`,
+    );
+  }
+
+  return result;
+}
+
 const PRIZE_REDEMPTION_EMAIL =
   import.meta.env.VITE_PRIZE_REDEMPTION_EMAIL || "alan_craig@msn.com";
 
@@ -238,7 +368,12 @@ export async function sendPartnerRequestEmail({
 
   return result;
 }
+
 export async function sendContactEmail(message: string) {
+  if (!EMAILJS_SERVICE_ID || !EMAILJS_TEMPLATE_ID || !EMAILJS_PUBLIC_KEY) {
+    throw new Error("EmailJS configuration is missing. Check your .env file.");
+  }
+
   return emailjs.send(
     EMAILJS_SERVICE_ID,
     EMAILJS_TEMPLATE_ID,

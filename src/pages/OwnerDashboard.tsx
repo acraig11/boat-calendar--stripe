@@ -5,6 +5,7 @@ import { getUrl, remove, uploadData } from "aws-amplify/storage";
 import { getCurrentUser } from "aws-amplify/auth";
 import { client } from "../lib/amplifyClient";
 import "./OwnerDashboard.css";
+import "./OwnerBookingRequests.css";
 type OwnerProfile = Awaited<
   ReturnType<typeof client.models.ExperienceOwnerProfile.list>
 >["data"][number];
@@ -12,6 +13,36 @@ type OwnerProfile = Awaited<
 type Experience = Awaited<
   ReturnType<typeof client.models.Experience.list>
 >["data"][number];
+
+type Booking = Awaited<
+  ReturnType<typeof client.models.Booking.list>
+>["data"][number];
+
+type ExperienceCalendarEvent = Awaited<
+  ReturnType<typeof client.models.ExperienceCalendarEvent.list>
+>["data"][number];
+
+type PendingBookingRequest = {
+  booking: Booking;
+  calendarEvent: ExperienceCalendarEvent | null;
+};
+
+function formatBookingDateTime(value: string) {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return date.toLocaleString("en-US", {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
 
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
 
@@ -113,8 +144,17 @@ function DashboardContent({
   signOut?: () => void;
   userEmail: string;
 }) {
+  console.log("OWNER DASHBOARD VERSION: PENDING-LIST-2026-07-31");
+
   const [profile, setProfile] = useState<OwnerProfile | null>(null);
   const [experiences, setexperiences] = useState<Experience[]>([]);
+  const [bookings, setBookings] = useState<Booking[]>([]);
+  const [calendarEvents, setCalendarEvents] = useState<
+    ExperienceCalendarEvent[]
+  >([]);
+  const [approvingBookingId, setApprovingBookingId] = useState<string | null>(
+    null,
+  );
 
   const [profileName, setProfileName] = useState("");
   const [profilePhone, setProfilePhone] = useState("");
@@ -142,6 +182,7 @@ function DashboardContent({
   const experienceImageInputRef = useRef<HTMLInputElement>(null);
 
   async function loadDashboard() {
+    console.log("loadDashboard started");
     setIsLoading(true);
     setMessage("");
 
@@ -154,7 +195,17 @@ function DashboardContent({
         );
       }
 
-      const currentProfile = profileResult.data[0] ?? null;
+      const currentUser = await getCurrentUser();
+
+      const currentProfile =
+        profileResult.data.find(
+          (ownerProfile) => ownerProfile.userId === currentUser.userId,
+        ) ?? null;
+
+      console.log("SIGNED-IN USER ID:", currentUser.userId);
+      console.log("ALL OWNER PROFILES:", profileResult.data);
+      console.log("MATCHED OWNER PROFILE:", currentProfile);
+
       setProfile(currentProfile);
 
       if (currentProfile) {
@@ -162,7 +213,12 @@ function DashboardContent({
         setProfilePhone(currentProfile.phone ?? "");
       }
 
-      const experienceResult = await client.models.Experience.list();
+      const [experienceResult, bookingResult, calendarResult] =
+        await Promise.all([
+          client.models.Experience.list(),
+          client.models.Booking.list(),
+          client.models.ExperienceCalendarEvent.list(),
+        ]);
 
       if (experienceResult.errors?.length) {
         throw new Error(
@@ -170,7 +226,72 @@ function DashboardContent({
         );
       }
 
-      setexperiences(experienceResult.data);
+      if (bookingResult.errors?.length) {
+        throw new Error(
+          bookingResult.errors.map((error) => error.message).join(", "),
+        );
+      }
+
+      if (calendarResult.errors?.length) {
+        throw new Error(
+          calendarResult.errors.map((error) => error.message).join(", "),
+        );
+      }
+
+      console.log("ALL EXPERIENCES:", experienceResult.data);
+      console.log("ALL BOOKINGS:", bookingResult.data);
+      console.log("ALL CALENDAR EVENTS:", calendarResult.data);
+
+      if (currentProfile) {
+        const ownerExperiences = experienceResult.data.filter(
+          (experience) => experience.ownerProfileId === currentProfile.id,
+        );
+
+        const ownerExperienceIds = new Set(
+          ownerExperiences.map((experience) => experience.id),
+        );
+
+        const ownerBookings = bookingResult.data.filter(
+          (booking) =>
+            booking.ownerProfileId === currentProfile.id ||
+            ownerExperienceIds.has(booking.experienceId),
+        );
+
+        const ownerBookingIds = new Set(
+          ownerBookings.map((booking) => booking.id),
+        );
+
+        const ownerCalendarEvents = calendarResult.data.filter(
+          (calendarEvent) =>
+            calendarEvent.ownerProfileId === currentProfile.id ||
+            ownerExperienceIds.has(calendarEvent.experienceId) ||
+            (calendarEvent.bookingId
+              ? ownerBookingIds.has(calendarEvent.bookingId)
+              : false),
+        );
+
+        setexperiences(ownerExperiences);
+        setBookings(ownerBookings);
+        setCalendarEvents(ownerCalendarEvents);
+
+        console.log("OWNER PROFILE ID:", currentProfile.id);
+        console.log(
+          "OWNER EXPERIENCE IDS:",
+          Array.from(ownerExperienceIds),
+        );
+        console.log("OWNER BOOKINGS FOUND:", ownerBookings);
+        console.log(
+          "OWNER CALENDAR EVENTS FOUND:",
+          ownerCalendarEvents,
+        );
+      } else {
+        console.warn(
+          "NO OWNER PROFILE MATCHED THE SIGNED-IN USER. Pending bookings cannot be displayed.",
+        );
+        setexperiences([]);
+        setBookings([]);
+        setCalendarEvents([]);
+      }
     } catch (error) {
       console.error("Could not load owner dashboard:", error);
 
@@ -496,6 +617,69 @@ function DashboardContent({
     }
   }
 
+  const pendingBookingRequests: PendingBookingRequest[] = bookings
+    .map((booking) => ({
+      booking,
+      calendarEvent:
+        calendarEvents.find(
+          (calendarEvent) => calendarEvent.bookingId === booking.id,
+        ) ?? null,
+    }))
+    .filter(
+      ({ calendarEvent }) =>
+        !calendarEvent || calendarEvent.status === "PENDING",
+    )
+    .sort(
+      (first, second) =>
+        new Date(first.booking.appointmentDateTime).getTime() -
+        new Date(second.booking.appointmentDateTime).getTime(),
+    );
+
+  async function approveBooking(request: PendingBookingRequest) {
+    if (!request.calendarEvent) {
+      setMessage(
+        "This booking does not have a matching calendar event to approve.",
+      );
+      return;
+    }
+
+    try {
+      setApprovingBookingId(request.booking.id);
+      setMessage("");
+
+      const result = await client.models.ExperienceCalendarEvent.update({
+        id: request.calendarEvent.id,
+        status: "ACCEPTED",
+      });
+
+      if (result.errors?.length) {
+        throw new Error(result.errors.map((error) => error.message).join(", "));
+      }
+
+      if (!result.data) {
+        throw new Error("The booking could not be approved.");
+      }
+
+      setCalendarEvents((currentEvents) =>
+        currentEvents.map((calendarEvent) =>
+          calendarEvent.id === result.data?.id ? result.data : calendarEvent,
+        ),
+      );
+
+      setMessage(`${request.booking.customerName}'s booking was approved.`);
+    } catch (error) {
+      console.error("Could not approve booking:", error);
+
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Could not approve the booking.",
+      );
+    } finally {
+      setApprovingBookingId(null);
+    }
+  }
+
   if (isLoading) {
     return <p>Loading owner dashboard...</p>;
   }
@@ -506,6 +690,7 @@ function DashboardContent({
         <div>
           <h1>Experience Owner Dashboard</h1>
           <p>Signed in as {userEmail}</p>
+          <small>Dashboard version: Pending List 2026-07-31</small>
         </div>
 
         <button type="button" onClick={signOut}>
@@ -573,6 +758,108 @@ function DashboardContent({
             <p>
               <strong>Phone:</strong> {profile.phone || "Not provided"}
             </p>
+          </section>
+
+          <section className="dashboard-section">
+            <div className="booking-requests-header">
+              <div>
+                <h2>Pending Booking Requests</h2>
+                <p>
+                  Review each request and approve it when ready. Found{" "}
+                  {pendingBookingRequests.length} pending request
+                  {pendingBookingRequests.length === 1 ? "" : "s"}.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => {
+                  void loadDashboard();
+                }}
+              >
+                Refresh
+              </button>
+            </div>
+
+            {pendingBookingRequests.length === 0 ? (
+              <p>There are no pending booking requests.</p>
+            ) : (
+              <div className="booking-request-list">
+                {pendingBookingRequests.map(
+                  ({ booking, calendarEvent }) => (
+                    <article
+                      className="booking-request-card"
+                      key={booking.id}
+                    >
+                      <div className="booking-request-main">
+                        <div>
+                          <h3>
+                            {booking.experienceName || "Experience Booking"}
+                          </h3>
+
+                          <p className="booking-request-date">
+                            {formatBookingDateTime(
+                              booking.appointmentDateTime,
+                            )}
+                          </p>
+                        </div>
+
+                        <span className="pending-booking-badge">Pending</span>
+                      </div>
+
+                      <dl className="booking-request-details">
+                        <div>
+                          <dt>Customer</dt>
+                          <dd>{booking.customerName}</dd>
+                        </div>
+
+                        <div>
+                          <dt>Email</dt>
+                          <dd>
+                            <a href={`mailto:${booking.customerEmail}`}>
+                              {booking.customerEmail}
+                            </a>
+                          </dd>
+                        </div>
+
+                        <div>
+                          <dt>Phone</dt>
+                          <dd>
+                            <a href={`tel:${booking.customerPhone}`}>
+                              {booking.customerPhone}
+                            </a>
+                          </dd>
+                        </div>
+                      </dl>
+
+                      {!calendarEvent && (
+                        <p className="booking-request-warning">
+                          No matching calendar event was found for this
+                          booking.
+                        </p>
+                      )}
+
+                      <button
+                        type="button"
+                        className="approve-booking-button"
+                        disabled={
+                          !calendarEvent ||
+                          approvingBookingId === booking.id
+                        }
+                        onClick={() => {
+                          void approveBooking({ booking, calendarEvent });
+                        }}
+                      >
+                        {approvingBookingId === booking.id
+                          ? "Approving..."
+                          : "Approve Booking"}
+                      </button>
+                    </article>
+                  ),
+                )}
+              </div>
+            )}
           </section>
 
           <section className="dashboard-section">
