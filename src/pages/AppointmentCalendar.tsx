@@ -4,7 +4,10 @@ import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 import "./AppointmentCalendar.css";
 
-import { sendBookingEmailWithAppointment } from "../utils/email";
+import {
+  sendBookingEmailWithAppointment,
+  sendBookingPendingEmail,
+} from "../utils/email";
 import { getUrl } from "aws-amplify/storage";
 import { client } from "../lib/amplifyClient";
 
@@ -179,6 +182,83 @@ function AppointmentCalendar() {
 
     void loadExperiences();
   }, []);
+
+  useEffect(() => {
+    if (!selectedExperience) {
+      setCalendarEvents([]);
+      setAvailabilityError("");
+      setIsLoadingAvailability(false);
+      return;
+    }
+
+    const selectedExperienceId = selectedExperience.id;
+    let isActive = true;
+
+    async function loadCalendarAvailability() {
+      try {
+        setIsLoadingAvailability(true);
+        setAvailabilityError("");
+
+        const result =
+          await client.models.ExperienceCalendarEvent.list({
+            filter: {
+              experienceId: {
+                eq: selectedExperienceId,
+              },
+            },
+            authMode: "apiKey",
+          });
+
+        if (result.errors?.length) {
+          throw new Error(
+            result.errors.map((error) => error.message).join(", "),
+          );
+        }
+
+        if (!isActive) {
+          return;
+        }
+
+        const events: CalendarEvent[] = result.data.map((event) => ({
+          id: event.id,
+          experienceId: event.experienceId,
+          ownerProfileId: event.ownerProfileId,
+          bookingId: event.bookingId,
+          startDateTime: event.startDateTime,
+          endDateTime: event.endDateTime,
+          status: event.status,
+        }));
+
+        console.log(
+          "CALENDAR EVENTS FOR SELECTED EXPERIENCE:",
+          events,
+        );
+
+        setCalendarEvents(events);
+      } catch (error) {
+        console.error("Could not load booked dates:", error);
+
+        if (isActive) {
+          setCalendarEvents([]);
+          setAvailabilityError(
+            error instanceof Error
+              ? error.message
+              : "Booked dates could not be loaded.",
+          );
+        }
+      } finally {
+        if (isActive) {
+          setIsLoadingAvailability(false);
+        }
+      }
+    }
+
+    void loadCalendarAvailability();
+
+    return () => {
+      isActive = false;
+    };
+  }, [selectedExperience]);
 
   const toggleExperience = (experience: string) => {
     setSelectedExperiences((current) =>
@@ -421,6 +501,21 @@ function AppointmentCalendar() {
         selectedExperience.location,
         experienceOwnerEmail,
       );
+
+      try {
+        await sendBookingPendingEmail({
+          customerName: contact.name.trim(),
+          customerEmail: contact.email.trim(),
+          experienceName: selectedExperience.name,
+          location: selectedExperience.location,
+          appointmentDateTime: appointmentDateTime.toISOString(),
+        });
+      } catch (emailError) {
+        console.error(
+          "Booking was created, but the pending confirmation email failed:",
+          emailError,
+        );
+      }
 
       setCalendarEvents((currentEvents) => [
         ...currentEvents,

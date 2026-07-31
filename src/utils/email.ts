@@ -388,3 +388,93 @@ export async function sendContactEmail(message: string) {
     },
   );
 }
+export async function sendBookingPendingEmail({
+  customerName,
+  customerEmail,
+  experienceName,
+  location,
+  appointmentDateTime,
+}: {
+  customerName: string;
+  customerEmail: string;
+  experienceName: string;
+  location?: string | null;
+  appointmentDateTime: string;
+}) {
+  if (!EMAILJS_SERVICE_ID || !EMAILJS_TEMPLATE_ID || !EMAILJS_PUBLIC_KEY) {
+    throw new Error("EmailJS configuration is missing. Check your .env file.");
+  }
+
+  const recipientEmail = customerEmail.trim();
+
+  if (!recipientEmail) {
+    throw new Error("The customer's email address was not found.");
+  }
+
+  const appointment = new Date(appointmentDateTime);
+
+  if (Number.isNaN(appointment.getTime())) {
+    throw new Error("The booking date or time is invalid.");
+  }
+
+  const appointmentDate = formatDateForEmail(appointment);
+
+  const appointmentTime = appointment.toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+
+  const subject = "Your Coast Life Booking Request Was Received";
+
+  const message = [
+    `Hello ${customerName.trim() || "Customer"},`,
+    "",
+    "We received your booking request.",
+    "",
+    "Status: Pending Approval",
+    "",
+    `Experience: ${experienceName || "Not set"}`,
+    `Location: ${location || "Not set"}`,
+    `Requested Date: ${appointmentDate}`,
+    `Requested Time: ${appointmentTime}`,
+    "",
+    "Your request has been sent to the experience owner for review.",
+    "You will receive another email when your booking is approved or rejected.",
+  ].join("\n");
+
+  const result = await emailjs.send(
+    EMAILJS_SERVICE_ID,
+    EMAILJS_TEMPLATE_ID,
+    {
+      subject,
+      message,
+
+      to_email: recipientEmail,
+      cc_email: "alan_craig@msn.com",
+
+      customer_name: customerName.trim(),
+      customer_email: recipientEmail,
+
+      experience_name: experienceName,
+      location: location ?? "",
+
+      appointment_date: appointmentDate,
+      appointment_time: appointmentTime,
+
+      booking_status: "PENDING",
+    },
+    {
+      publicKey: EMAILJS_PUBLIC_KEY,
+    },
+  );
+
+  console.log("EmailJS pending booking result:", result);
+
+  if (result.status !== 200) {
+    throw new Error(
+      `EmailJS failed. Status: ${result.status}, Text: ${result.text}`,
+    );
+  }
+
+  return result;
+}

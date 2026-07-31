@@ -6,6 +6,8 @@ import { getCurrentUser } from "aws-amplify/auth";
 import { client } from "../lib/amplifyClient";
 import "./OwnerDashboard.css";
 import "./OwnerBookingRequests.css";
+import { sendBookingDecisionEmail } from "../utils/email";
+
 type OwnerProfile = Awaited<
   ReturnType<typeof client.models.ExperienceOwnerProfile.list>
 >["data"][number];
@@ -152,7 +154,7 @@ function DashboardContent({
   const [calendarEvents, setCalendarEvents] = useState<
     ExperienceCalendarEvent[]
   >([]);
-  const [approvingBookingId, setApprovingBookingId] = useState<string | null>(
+  const [updatingBookingId, setUpdatingBookingId] = useState<string | null>(
     null,
   );
 
@@ -635,48 +637,108 @@ function DashboardContent({
         new Date(second.booking.appointmentDateTime).getTime(),
     );
 
-  async function approveBooking(request: PendingBookingRequest) {
+  async function updateBookingStatus(
+    request: PendingBookingRequest,
+    status: "ACCEPTED" | "REJECTED",
+  ) {
     if (!request.calendarEvent) {
       setMessage(
-        "This booking does not have a matching calendar event to approve.",
+        "This booking does not have a matching calendar event to update.",
       );
       return;
     }
 
     try {
-      setApprovingBookingId(request.booking.id);
+      setUpdatingBookingId(request.booking.id);
       setMessage("");
 
-      const result = await client.models.ExperienceCalendarEvent.update({
-        id: request.calendarEvent.id,
-        status: "ACCEPTED",
-      });
+      const calendarResult =
+        await client.models.ExperienceCalendarEvent.update({
+          id: request.calendarEvent.id,
+          status,
+        });
 
-      if (result.errors?.length) {
-        throw new Error(result.errors.map((error) => error.message).join(", "));
+      if (calendarResult.errors?.length) {
+        throw new Error(
+          calendarResult.errors.map((error) => error.message).join(", "),
+        );
       }
 
-      if (!result.data) {
-        throw new Error("The booking could not be approved.");
+      if (!calendarResult.data) {
+        throw new Error("The booking calendar status could not be updated.");
+      }
+
+      const bookingResult = await client.models.Booking.update({
+        id: request.booking.id,
+        status,
+      });
+
+      if (bookingResult.errors?.length) {
+        throw new Error(
+          bookingResult.errors.map((error) => error.message).join(", "),
+        );
+      }
+
+      if (!bookingResult.data) {
+        throw new Error("The booking record status could not be updated.");
       }
 
       setCalendarEvents((currentEvents) =>
         currentEvents.map((calendarEvent) =>
-          calendarEvent.id === result.data?.id ? result.data : calendarEvent,
+          calendarEvent.id === calendarResult.data?.id
+            ? calendarResult.data
+            : calendarEvent,
         ),
       );
 
-      setMessage(`${request.booking.customerName}'s booking was approved.`);
+      setBookings((currentBookings) =>
+        currentBookings.map((booking) =>
+          booking.id === bookingResult.data?.id
+            ? bookingResult.data
+            : booking,
+        ),
+      );
+
+      try {
+        await sendBookingDecisionEmail({
+          customerName: request.booking.customerName,
+          customerEmail: request.booking.customerEmail,
+          experienceName: request.booking.experienceName,
+          location: request.booking.location,
+          appointmentDateTime: request.booking.appointmentDateTime,
+          status,
+          ownerName: profile?.name,
+          ownerEmail: profile?.email,
+          ownerPhone: profile?.phone,
+        });
+
+        setMessage(
+          `${request.booking.customerName}'s booking was ${
+            status === "ACCEPTED" ? "approved" : "rejected"
+          }, and the customer was emailed.`,
+        );
+      } catch (emailError) {
+        console.error(
+          "The booking was updated, but the notification email failed:",
+          emailError,
+        );
+
+        setMessage(
+          `${request.booking.customerName}'s booking was ${
+            status === "ACCEPTED" ? "approved" : "rejected"
+          }, but the notification email could not be sent.`,
+        );
+      }
     } catch (error) {
-      console.error("Could not approve booking:", error);
+      console.error("Could not update booking status:", error);
 
       setMessage(
         error instanceof Error
           ? error.message
-          : "Could not approve the booking.",
+          : "Could not update the booking status.",
       );
     } finally {
-      setApprovingBookingId(null);
+      setUpdatingBookingId(null);
     }
   }
 
@@ -840,21 +902,45 @@ function DashboardContent({
                         </p>
                       )}
 
-                      <button
-                        type="button"
-                        className="approve-booking-button"
-                        disabled={
-                          !calendarEvent ||
-                          approvingBookingId === booking.id
-                        }
-                        onClick={() => {
-                          void approveBooking({ booking, calendarEvent });
-                        }}
-                      >
-                        {approvingBookingId === booking.id
-                          ? "Approving..."
-                          : "Approve Booking"}
-                      </button>
+                      <div className="booking-request-actions">
+                        <button
+                          type="button"
+                          className="approve-booking-button"
+                          disabled={
+                            !calendarEvent ||
+                            updatingBookingId === booking.id
+                          }
+                          onClick={() => {
+                            void updateBookingStatus(
+                              { booking, calendarEvent },
+                              "ACCEPTED",
+                            );
+                          }}
+                        >
+                          {updatingBookingId === booking.id
+                            ? "Updating..."
+                            : "Approve Booking"}
+                        </button>
+
+                        <button
+                          type="button"
+                          className="reject-booking-button"
+                          disabled={
+                            !calendarEvent ||
+                            updatingBookingId === booking.id
+                          }
+                          onClick={() => {
+                            void updateBookingStatus(
+                              { booking, calendarEvent },
+                              "REJECTED",
+                            );
+                          }}
+                        >
+                          {updatingBookingId === booking.id
+                            ? "Updating..."
+                            : "Reject Booking"}
+                        </button>
+                      </div>
                     </article>
                   ),
                 )}
