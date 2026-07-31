@@ -12,6 +12,7 @@ import Home from "./pages/Home.tsx";
 import Partner from "./pages/Partner.tsx";
 import Contact from "./pages/Contact.tsx";
 import FreeMerch from "./pages/FreeMerch.tsx";
+import TestDatabaseWrites from "./pages/TestDatabaseWrites.tsx";
 function App() {
   return (
     <Routes>
@@ -25,6 +26,7 @@ function App() {
         <Route path="user" element={<UserDashboard />} />
         <Route path="prizes" element={<Prizes />} />
         <Route path="partner" element={<Partner />} />
+        <Route path="test-database" element={<TestDatabaseWrites />} />
       </Route>
     </Routes>
   );

@@ -37,17 +37,14 @@ const experiences = [
   "Beach",
 ];
 
-type Appointment = {
+type CalendarEvent = {
   id: string;
   experienceId: string;
-  experienceName: string;
-  title: string;
-  date: string;
-  time: string;
-  start: string;
-  customerName: string;
-  customerEmail: string;
-  customerPhone: string;
+  ownerProfileId: string;
+  bookingId?: string | null;
+  startDateTime: string;
+  endDateTime?: string | null;
+  status?: "PENDING" | "ACCEPTED" | "REJECTED" | "CANCELLED" | "BLOCKED" | null;
 };
 
 function formatDateForStorage(date: Date): string {
@@ -137,17 +134,9 @@ function AppointmentCalendar() {
 
   const [isSending, setIsSending] = useState(false);
   const datePickerRef = useRef<DatePicker>(null);
-  const [appointments, setAppointments] = useState<Appointment[]>(() => {
-    try {
-      const saved = localStorage.getItem("experienceAppointments");
-
-      return saved ? JSON.parse(saved) : [];
-    } catch (error) {
-      console.error("Could not load appointments:", error);
-
-      return [];
-    }
-  });
+  const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
+  const [isLoadingAvailability, setIsLoadingAvailability] = useState(false);
+  const [availabilityError, setAvailabilityError] = useState("");
 
   useEffect(() => {
     async function loadExperiences() {
@@ -191,17 +180,6 @@ function AppointmentCalendar() {
     void loadExperiences();
   }, []);
 
-  useEffect(() => {
-    try {
-      localStorage.setItem(
-        "experienceAppointments",
-        JSON.stringify(appointments),
-      );
-    } catch (error) {
-      console.error("Could not save appointments:", error);
-    }
-  }, [appointments]);
-
   const toggleExperience = (experience: string) => {
     setSelectedExperiences((current) =>
       current.includes(experience)
@@ -227,6 +205,15 @@ function AppointmentCalendar() {
 
     return matchesLocation && matchesExperience;
   });
+
+  const unavailableDates = calendarEvents
+    .filter(
+      (event) =>
+        event.status === "PENDING" ||
+        event.status === "ACCEPTED" ||
+        event.status === "BLOCKED",
+    )
+    .map((event) => new Date(event.startDateTime));
 
   const openAppointmentForm = (experience: Experience) => {
     setSelectedExperience(experience);
@@ -298,19 +285,6 @@ function AppointmentCalendar() {
       ownerEmail: contact.email,
     };
 
-    const newAppointment: Appointment = {
-      id: crypto.randomUUID(),
-      experienceId: selectedExperience.id,
-      experienceName: selectedExperience.name,
-      title: appointmentTitle.trim(),
-      date: dateString,
-      time: selectedTime,
-      start: `${dateString}T${selectedTime}:00`,
-      customerName: contact.name,
-      customerEmail: contact.email,
-      customerPhone: contact.phone,
-    };
-
     try {
       setIsSending(true);
 
@@ -377,6 +351,69 @@ function AppointmentCalendar() {
         );
       }
 
+      const bookingInput = {
+        customerName: contact.name.trim(),
+        customerEmail: contact.email.trim(),
+        customerPhone: contact.phone.trim(),
+        appointmentDateTime: appointmentDateTime.toISOString(),
+        experienceId: selectedExperience.id,
+        experienceName: selectedExperience.name,
+        ownerProfileId: selectedExperience.ownerProfileId,
+      };
+
+      console.log("BOOKING INPUT:", bookingInput);
+
+      const bookingResult = await client.models.Booking.create(bookingInput, {
+        authMode: "apiKey",
+      });
+
+      console.log("BOOKING RESULT:", bookingResult);
+
+      if (bookingResult.errors?.length) {
+        throw new Error(
+          bookingResult.errors.map((error) => error.message).join(", "),
+        );
+      }
+
+      if (!bookingResult.data) {
+        throw new Error("No booking record was returned.");
+      }
+
+      const booking = bookingResult.data;
+
+      const calendarInput = {
+        experienceId: selectedExperience.id,
+        experienceName: selectedExperience.name,
+        ownerProfileId: selectedExperience.ownerProfileId,
+        bookingId: booking.id,
+        startDateTime: appointmentDateTime.toISOString(),
+        status: "PENDING" as const,
+        title: "Unavailable",
+      };
+
+      console.log("CALENDAR INPUT:", calendarInput);
+
+      const calendarResult = await client.models.ExperienceCalendarEvent.create(
+        calendarInput,
+        {
+          authMode: "apiKey",
+        },
+      );
+
+      console.log("CALENDAR RESULT:", calendarResult);
+
+      if (calendarResult.errors?.length) {
+        throw new Error(
+          calendarResult.errors.map((error) => error.message).join(", "),
+        );
+      }
+
+      if (!calendarResult.data) {
+        throw new Error("No calendar event record was returned.");
+      }
+
+      const calendarEvent = calendarResult.data;
+
       await sendBookingEmailWithAppointment(
         appointmentDateTime,
         profile,
@@ -385,12 +422,20 @@ function AppointmentCalendar() {
         experienceOwnerEmail,
       );
 
-      setAppointments((currentAppointments) => [
-        ...currentAppointments,
-        newAppointment,
+      setCalendarEvents((currentEvents) => [
+        ...currentEvents,
+        {
+          id: calendarEvent.id,
+          experienceId: calendarEvent.experienceId,
+          ownerProfileId: calendarEvent.ownerProfileId,
+          bookingId: calendarEvent.bookingId,
+          startDateTime: calendarEvent.startDateTime,
+          endDateTime: calendarEvent.endDateTime,
+          status: calendarEvent.status,
+        },
       ]);
 
-      alert("Your experience appointment request was sent.");
+      alert("Your booking request was sent and is pending owner approval.");
 
       setSelectedExperience(null);
       setAppointmentTitle("");
@@ -398,9 +443,9 @@ function AppointmentCalendar() {
       setSelectedTime("09:00");
       setShowContactForm(false);
     } catch (error: unknown) {
-      console.error("Could not send appointment email:", error);
+      console.error("Could not complete appointment request:", error);
 
-      let errorMessage = "The appointment email could not be sent.";
+      let errorMessage = "The appointment request could not be completed.";
 
       if (error instanceof Error) {
         errorMessage = error.message;
@@ -412,7 +457,7 @@ function AppointmentCalendar() {
         errorMessage = String((error as { text?: string }).text);
       }
 
-      alert(`Email could not be sent: ${errorMessage}`);
+      alert(`Booking request failed: ${errorMessage}`);
     } finally {
       setIsSending(false);
     }
@@ -628,10 +673,22 @@ function AppointmentCalendar() {
                       }}
                       shouldCloseOnSelect={true}
                       minDate={new Date()}
+                      excludeDates={unavailableDates}
+                      disabled={isLoadingAvailability}
                       dateFormat="MMMM d, yyyy"
-                      placeholderText="Select a date"
+                      placeholderText={
+                        isLoadingAvailability
+                          ? "Loading availability..."
+                          : "Select a date"
+                      }
                       className="datepicker-input"
                     />
+
+                    {availabilityError && (
+                      <p className="experience-status-message experience-error">
+                        Availability could not be loaded: {availabilityError}
+                      </p>
+                    )}
                   </div>
 
                   <div className="date-time-field">

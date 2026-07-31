@@ -35,6 +35,10 @@ const schema = a.schema({
       phone: a.string(),
 
       experiences: a.hasMany("Experience", "ownerProfileId"),
+
+      bookings: a.hasMany("Booking", "ownerProfileId"),
+
+      calendarEvents: a.hasMany("ExperienceCalendarEvent", "ownerProfileId"),
     })
     .authorization((allow) => [
       allow.owner(),
@@ -48,12 +52,15 @@ const schema = a.schema({
       location: a.string().required(),
       estimatedPrice: a.float(),
       imageUrl: a.string(),
+      experienceType: a.string(),
 
       ownerProfileId: a.id().required(),
-      experienceType: a.string(),
+
       ownerProfile: a.belongsTo("ExperienceOwnerProfile", "ownerProfileId"),
 
       bookings: a.hasMany("Booking", "experienceId"),
+
+      calendarEvents: a.hasMany("ExperienceCalendarEvent", "experienceId"),
     })
     .authorization((allow) => [
       allow.owner(),
@@ -69,20 +76,66 @@ const schema = a.schema({
       appointmentDateTime: a.datetime().required(),
 
       experienceId: a.id().required(),
+
       experience: a.belongsTo("Experience", "experienceId"),
 
       experienceName: a.string().required(),
-      experienceOwnerId: a.string().required(),
-
       location: a.string(),
 
-      status: a.enum(["PENDING", "CONFIRMED", "CANCELLED"]),
+      ownerProfileId: a.id().required(),
+
+      ownerProfile: a.belongsTo("ExperienceOwnerProfile", "ownerProfileId"),
+
+      status: a.enum(["PENDING", "ACCEPTED", "REJECTED", "CANCELLED"]),
 
       emailSent: a.boolean(),
+
+      // Amplify owner authorization field.
+      owner: a.string(),
     })
     .authorization((allow) => [
-      allow.ownerDefinedIn("experienceOwnerId"),
-      allow.guest().to(["create"]),
+      allow.ownerDefinedIn("owner"),
+      allow.publicApiKey().to(["create"]),
+    ]),
+
+  ExperienceCalendarEvent: a
+    .model({
+      experienceId: a.id().required(),
+
+      experience: a.belongsTo("Experience", "experienceId"),
+
+      experienceName: a.string().required(),
+
+      ownerProfileId: a.id().required(),
+
+      ownerProfile: a.belongsTo("ExperienceOwnerProfile", "ownerProfileId"),
+
+      bookingId: a.id(),
+
+      startDateTime: a.datetime().required(),
+      endDateTime: a.datetime(),
+
+      status: a.enum([
+        "PENDING",
+        "ACCEPTED",
+        "REJECTED",
+        "CANCELLED",
+        "BLOCKED",
+      ]),
+
+      title: a.string(),
+      notes: a.string(),
+
+      // Amplify owner authorization field.
+      owner: a.string(),
+    })
+    .secondaryIndexes((index) => [
+      index("experienceId").sortKeys(["startDateTime"]),
+      index("ownerProfileId").sortKeys(["startDateTime"]),
+    ])
+    .authorization((allow) => [
+      allow.ownerDefinedIn("owner"),
+      allow.publicApiKey().to(["create", "read"]),
     ]),
 });
 
@@ -90,11 +143,12 @@ export type Schema = ClientSchema<typeof schema>;
 
 export const data = defineData({
   schema,
+
   authorizationModes: {
     defaultAuthorizationMode: "userPool",
 
     apiKeyAuthorizationMode: {
-      expiresInDays: 30,
+      expiresInDays: 365,
     },
   },
 });
