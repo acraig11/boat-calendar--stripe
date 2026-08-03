@@ -51,7 +51,7 @@ const links = [
 function SocialMedia() {
   return (
     <div className="social-page">
-      <h1>Follow Coast Life</h1>
+      
       <p className="subtitle">
         Connect with us on your favorite social platforms.
       </p>

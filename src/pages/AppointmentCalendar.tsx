@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import DatePicker from "react-datepicker";
 
 import "react-datepicker/dist/react-datepicker.css";
@@ -117,12 +118,31 @@ function ExperienceImage({
 }
 
 function AppointmentCalendar() {
+  const [searchParams] = useSearchParams();
+
   const [experienceRecords, setExperienceRecords] = useState<Experience[]>([]);
   const [isLoadingExperiences, setIsLoadingExperiences] = useState(true);
   const [experienceLoadError, setExperienceLoadError] = useState("");
 
   const [selectedExperiences, setSelectedExperiences] = useState<string[]>([]);
   const [locationFilter, setLocationFilter] = useState("");
+
+  useEffect(() => {
+    const requestedExperience = searchParams.get("experience")?.trim();
+
+    if (!requestedExperience) {
+      return;
+    }
+
+    const matchingExperience = experiences.find(
+      (experience) =>
+        experience.toLowerCase() === requestedExperience.toLowerCase(),
+    );
+
+    if (matchingExperience) {
+      setSelectedExperiences([matchingExperience]);
+    }
+  }, [searchParams]);
 
   const [selectedExperience, setSelectedExperience] =
     useState<Experience | null>(null);

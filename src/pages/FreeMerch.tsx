@@ -7,10 +7,12 @@ const client = generateClient();
 
 const keywordsURL =
   "https://raw.githubusercontent.com/acraig11/coast-life-user-content/main/required_keywords.txt";
+const validationPointsURL =
+  "https://raw.githubusercontent.com/acraig11/coast-life-user-content/main/validation_points.txt";
 
 const fallbackKeywords = ["like", "love", "favorite", "feel"];
 const minWordsRequired = 7;
-const pointsPerValidation = 10;
+const fallbackPointsPerValidation = 10;
 
 const createUserProfile = /* GraphQL */ `
   mutation CreateUserProfile($input: CreateUserProfileInput!) {
@@ -53,6 +55,9 @@ function FreeMerch() {
   const [requiredKeywords, setRequiredKeywords] =
     useState<string[]>(fallbackKeywords);
   const [totalPoints, setTotalPoints] = useState(0);
+  const [pointsPerValidation, setPointsPerValidation] = useState(
+    fallbackPointsPerValidation,
+  );
 
   async function checkLogin() {
     try {
@@ -89,6 +94,37 @@ function FreeMerch() {
     }
   }
 
+  async function loadValidationPoints(): Promise<number> {
+    const cacheBustedURL = `${validationPointsURL}?t=${Date.now()}`;
+
+    try {
+      const response = await fetch(cacheBustedURL, {
+        method: "GET",
+        cache: "no-store",
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const raw = (await response.text()).trim();
+      const parsed = Number(raw);
+
+      if (!Number.isInteger(parsed) || parsed < 0) {
+        throw new Error(
+          `validation_points.txt must contain only a whole number. Received: "${raw}"`,
+        );
+      }
+
+      console.log("Validation points loaded from GitHub:", parsed);
+      setPointsPerValidation(parsed);
+      return parsed;
+    } catch (error) {
+      console.error("Failed to load validation points:", error);
+      throw error;
+    }
+  }
+
   async function loadPoints() {
     try {
       const result: any = await client.graphql({
@@ -117,7 +153,7 @@ function FreeMerch() {
     return requiredKeywords.some((keyword) => lower.includes(keyword));
   }
 
-  async function addRewardPoints(validatedText: string) {
+  async function addRewardPoints(validatedText: string, pointsToAward: number) {
     const currentUser = await getCurrentUser();
 
     const result: any = await client.graphql({
@@ -126,7 +162,7 @@ function FreeMerch() {
         input: {
           userId: currentUser.userId,
           content: "Rewards",
-          rewardPoints: pointsPerValidation,
+          rewardPoints: pointsToAward,
           validatedResponse: validatedText,
         },
       },
@@ -165,7 +201,8 @@ function FreeMerch() {
       setIsSending(true);
       setErrorText(null);
 
-      await addRewardPoints(text);
+      const currentValidationPoints = await loadValidationPoints();
+      await addRewardPoints(text, currentValidationPoints);
       await loadPoints();
 
       setMessages((old) => [
@@ -185,7 +222,9 @@ function FreeMerch() {
       setInput("");
     } catch (error) {
       console.error("Reward save error:", error);
-      setErrorText("Your message was valid, but points could not be saved.");
+      setErrorText(
+        "Your message was valid, but the current validation points could not be loaded or saved.",
+      );
     } finally {
       setIsSending(false);
     }
@@ -197,8 +236,11 @@ function FreeMerch() {
 
   useEffect(() => {
     if (isLoggedIn) {
-      refreshKeywords();
-      loadPoints();
+      void refreshKeywords();
+      void loadValidationPoints().catch(() => {
+        setErrorText("Could not load validation points from GitHub.");
+      });
+      void loadPoints();
     }
   }, [isLoggedIn]);
 

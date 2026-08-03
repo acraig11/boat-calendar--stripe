@@ -506,7 +506,7 @@ function UserDashboard() {
                 value={form.apparelGender}
                 onChange={(value) => updateForm("apparelGender", value)}
                 disabled={isSaving}
-                options={["Men's", "Women's", "Unisex"]}
+                options={["M", "F"]}
               />
             </div>
 

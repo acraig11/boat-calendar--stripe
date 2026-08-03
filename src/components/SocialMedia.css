@@ -31,3 +31,8 @@
   font-size: 0.95rem;
   font-weight: 600;
 }
+.subtitle {
+  text-align: center;
+  font-size: 1.1rem;
+  margin-bottom: 24px;
+}

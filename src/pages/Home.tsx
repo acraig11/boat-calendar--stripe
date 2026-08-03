@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import SocialMedia from "../components/SocialMedia";
-
+import { Link } from "react-router-dom";
+import { FaGolfBall, FaShip, FaFish } from "react-icons/fa";
 /**
  * Fetch a YouTube embed URL from a GitHub raw text file
  */
@@ -96,13 +97,13 @@ export default function Home() {
   );
 
   return (
-    <div style={{ maxWidth: 1100, margin: "0 auto", padding: 24 }}>
-      <h1 style={{ marginBottom: 8 }}> Welcome to Coast Life</h1>
+    <div style={{ maxWidth: 1100, margin: "0 auto", padding:"4px 12 12" }}>
+      <h1 style={{ marginBottom: 8, textAlign: "center" }}> Entertainment Content</h1>
 
       {/* 🎥 Two Featured Videos */}
       <div
         style={{
-          marginTop: 24,
+          marginTop: 0,
           display: "grid",
           gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
           gap: 16,
@@ -112,6 +113,80 @@ export default function Home() {
         {videoUrl2 && <Video url={videoUrl2} title="Featured Video 2" />}
       </div>
       <SocialMedia />
+      <div className="quick-links"
+  style={{
+    display: "flex",
+    justifyContent: "center",
+    gap: "12px",
+    flexWrap: "wrap",
+    marginTop: "20px",
+  }}
+>
+  <div>
+  <p> Quick Links</p>
+  </div>
+  <Link
+    to="/booking?experience=Golf"
+    style={{display: "flex",alignItems: "center",gap: "8px",padding: "10px 16px",background: "green",color: "white",textDecoration: "none",borderRadius:"10px" ,fontWeight: 600,
+    }}
+  >
+    <FaGolfBall />
+    Golf
+  </Link>
+
+  <Link
+    to="/booking?experience=Boat"
+    style={{
+      display: "flex",
+      alignItems: "center",
+      gap: "8px",
+      padding: "10px 16px",
+      background: "teal",
+      color: "white",
+      textDecoration: "none",
+      borderRadius: "10px",
+      fontWeight: 600,
+    }}
+  >
+    <FaShip />
+    Boating
+  </Link>
+
+  <Link
+    to="/booking?experience=Fishing"
+    style={{
+      display: "flex",
+      alignItems: "center",
+      gap: "8px",
+      padding: "10px 16px",
+      background: "orange",
+      color: "white",
+      textDecoration: "none",
+      borderRadius: "10px",
+      fontWeight: 600,
+    }}
+  >
+    <FaFish />
+    Fishing
+  </Link>
+  <Link
+    to="/booking?"
+    style={{
+      display: "flex",
+      alignItems: "center",
+      gap: "8px",
+      padding: "10px 16px",
+      background: "orange",
+      color: "white",
+      textDecoration: "none",
+      borderRadius: "10px",
+      fontWeight: 600,
+    }}
+  >
+   
+   Other Experiences
+  </Link>
+</div>
     </div>
   );
 }
