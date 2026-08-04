@@ -158,10 +158,7 @@ function DashboardContent({
   const [updatingBookingId, setUpdatingBookingId] = useState<string | null>(
     null,
   );
-  const [isTestingStripeApi, setIsTestingStripeApi] = useState(false);
-  const [generatingPaymentBookingId, setGeneratingPaymentBookingId] =
-    useState<string | null>(null);
-  const [checkoutUrls, setCheckoutUrls] = useState<Record<string, string>>({});
+  const [showAllBookings, setShowAllBookings] = useState(false);
 
   const [profileName, setProfileName] = useState("");
   const [profilePhone, setProfilePhone] = useState("");
@@ -624,6 +621,51 @@ function DashboardContent({
     }
   }
 
+  const allBookingsSorted = [...bookings].sort(
+    (first, second) =>
+      new Date(second.appointmentDateTime).getTime() -
+      new Date(first.appointmentDateTime).getTime(),
+  );
+
+  function formatBookingAmount(amountInCents?: number | null) {
+    if (amountInCents == null) {
+      return "Not set";
+    }
+
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "USD",
+    }).format(amountInCents / 100);
+  }
+
+  function getBookingDisplayStatus(booking: Booking) {
+    if (booking.paymentStatus === "PAID") {
+      return "Confirmed — Paid";
+    }
+
+    if (booking.status === "REJECTED") {
+      return "Rejected";
+    }
+
+    if (booking.status === "CANCELLED") {
+      return "Cancelled";
+    }
+
+    if (booking.paymentStatus === "AWAITING_PAYMENT") {
+      return "Approved — Awaiting Payment";
+    }
+
+    if (
+      booking.paymentStatus === "AWAITING_APPROVAL" ||
+      booking.status === "PENDING" ||
+      !booking.status
+    ) {
+      return "Pending Owner Approval";
+    }
+
+    return booking.status;
+  }
+
   const openBookingRequests: PendingBookingRequest[] = bookings
     .map((booking) => ({
       booking,
@@ -719,10 +761,6 @@ function DashboardContent({
           const checkout = await createCheckoutSession(request.booking.id);
           paymentUrl = checkout.checkoutUrl;
 
-          setCheckoutUrls((currentUrls) => ({
-            ...currentUrls,
-            [request.booking.id]: checkout.checkoutUrl,
-          }));
         }
 
         await sendBookingDecisionEmail({
@@ -751,7 +789,7 @@ function DashboardContent({
 
         setMessage(
           status === "ACCEPTED"
-            ? `${request.booking.customerName}'s booking was approved and is awaiting payment, but the payment link or approval email could not be completed. Use Generate Payment Link to retry.`
+            ? `${request.booking.customerName}'s booking was approved and is awaiting payment, but the payment link or approval email could not be completed.`
             : `${request.booking.customerName}'s booking was rejected, but the notification email could not be sent.`,
         );
       }
@@ -768,80 +806,6 @@ function DashboardContent({
     }
   }
 
-  async function testStripeApi() {
-    try {
-      setIsTestingStripeApi(true);
-      setMessage("");
-
-      const session = await fetchAuthSession();
-      const idToken = session.tokens?.idToken?.toString();
-
-      if (!idToken) {
-        throw new Error(
-          "The signed-in owner's authentication token could not be found.",
-        );
-      }
-
-      const endpoint = outputs.custom?.API?.stripeRestApi?.endpoint;
-
-      if (!endpoint) {
-        throw new Error(
-          "The Stripe REST API endpoint is missing from amplify_outputs.json.",
-        );
-      }
-
-      const response = await fetch(
-        `${endpoint.replace(/\/$/, "")}/stripe-test`,
-        {
-          method: "GET",
-          headers: {
-            Authorization: idToken,
-            Accept: "application/json",
-          },
-        },
-      );
-
-      const responseText = await response.text();
-
-      let responseData: {
-        success?: boolean;
-        message?: string;
-        userEmail?: string;
-      } = {};
-
-      if (responseText) {
-        try {
-          responseData = JSON.parse(responseText) as typeof responseData;
-        } catch {
-          throw new Error(
-            `The Stripe API returned an unreadable response: ${responseText}`,
-          );
-        }
-      }
-
-      if (!response.ok) {
-        throw new Error(
-          responseData.message ||
-            `The Stripe API request failed with status ${response.status}.`,
-        );
-      }
-
-      setMessage(
-        responseData.message ||
-          "The authenticated Stripe REST API is working.",
-      );
-    } catch (error: unknown) {
-      console.error("Could not reach the Stripe REST API:", error);
-
-      setMessage(
-        error instanceof Error
-          ? error.message
-          : "Could not reach the Stripe REST API.",
-      );
-    } finally {
-      setIsTestingStripeApi(false);
-    }
-  }
 
   async function createCheckoutSession(
     bookingId: string,
@@ -911,52 +875,6 @@ function DashboardContent({
     };
   }
 
-  async function generatePaymentLink(bookingId: string) {
-    try {
-      setGeneratingPaymentBookingId(bookingId);
-      setMessage("");
-
-      const checkout = await createCheckoutSession(bookingId);
-
-      setCheckoutUrls((currentUrls) => ({
-        ...currentUrls,
-        [bookingId]: checkout.checkoutUrl,
-      }));
-
-      setMessage(
-        checkout.reused
-          ? "The existing Stripe payment link is still active."
-          : "Stripe payment link created successfully.",
-      );
-    } catch (error: unknown) {
-      console.error("Could not generate the Stripe payment link:", error);
-
-      setMessage(
-        error instanceof Error
-          ? error.message
-          : "Could not generate the Stripe payment link.",
-      );
-    } finally {
-      setGeneratingPaymentBookingId(null);
-    }
-  }
-
-  async function copyPaymentLink(bookingId: string) {
-    const checkoutUrl = checkoutUrls[bookingId];
-
-    if (!checkoutUrl) {
-      setMessage("No Stripe payment link is available to copy.");
-      return;
-    }
-
-    try {
-      await navigator.clipboard.writeText(checkoutUrl);
-      setMessage("Stripe payment link copied to the clipboard.");
-    } catch (error: unknown) {
-      console.error("Could not copy the Stripe payment link:", error);
-      setMessage("The Stripe payment link could not be copied.");
-    }
-  }
 
   if (isLoading) {
     return <p>Loading owner dashboard...</p>;
@@ -972,16 +890,7 @@ function DashboardContent({
         </div>
 
         <div className="owner-dashboard-header-actions">
-          <button
-            type="button"
-            className="secondary-button"
-            disabled={isTestingStripeApi}
-            onClick={() => {
-              void testStripeApi();
-            }}
-          >
-            {isTestingStripeApi ? "Testing..." : "Test Stripe API"}
-          </button>
+         
 
           <button type="button" onClick={signOut}>
             Sign Out
@@ -1062,15 +971,27 @@ function DashboardContent({
                 </p>
               </div>
 
-              <button
-                type="button"
-                className="secondary-button"
-                onClick={() => {
-                  void loadDashboard();
-                }}
-              >
-                Refresh
-              </button>
+              <div className="booking-requests-header-actions">
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => {
+                    setShowAllBookings(true);
+                  }}
+                >
+                  Bookings history
+                </button>
+
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => {
+                    void loadDashboard();
+                  }}
+                >
+                  Refresh
+                </button>
+              </div>
             </div>
 
             {openBookingRequests.length === 0 ? (
@@ -1181,26 +1102,11 @@ function DashboardContent({
                             </button>
                           </>
                         ) : (
-                          <button
-                            type="button"
-                            className="approve-booking-button"
-                            disabled={
-                              generatingPaymentBookingId === booking.id ||
-                              booking.amountInCents == null ||
-                              booking.amountInCents <= 0
-                            }
-                            onClick={() => {
-                              void generatePaymentLink(booking.id);
-                            }}
-                          >
-                            {generatingPaymentBookingId === booking.id
-                              ? "Generating Payment Link..."
-                              : checkoutUrls[booking.id]
-                                ? "Refresh Payment Link"
-                                : booking.stripeCheckoutSessionId
-                                  ? "Retrieve Payment Link"
-                                  : "Generate Payment Link"}
-                          </button>
+                          <p className="booking-payment-status-message">
+                            Payment instructions were emailed to the customer.
+                            This booking will be confirmed when payment is
+                            received.
+                          </p>
                         )}
                       </div>
 
@@ -1212,31 +1118,6 @@ function DashboardContent({
                           </p>
                         )}
 
-                      {isAwaitingPayment && checkoutUrls[booking.id] && (
-                        <div className="booking-payment-link">
-                          <p>
-                            <strong>Stripe payment link ready</strong>
-                          </p>
-
-                          <a
-                            href={checkoutUrls[booking.id]}
-                            target="_blank"
-                            rel="noreferrer"
-                          >
-                            Open Stripe Checkout
-                          </a>
-
-                          <button
-                            type="button"
-                            className="secondary-button"
-                            onClick={() => {
-                              void copyPaymentLink(booking.id);
-                            }}
-                          >
-                            Copy Payment Link
-                          </button>
-                        </div>
-                      )}
                     </article>
                     );
                   },
@@ -1478,6 +1359,121 @@ function DashboardContent({
             </section>
           )}
         </>
+      )}
+
+      {showAllBookings && (
+        <div
+          className="booking-history-overlay"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              setShowAllBookings(false);
+            }
+          }}
+        >
+          <section
+            className="booking-history-sheet"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="booking-history-title"
+          >
+            <div className="booking-history-header">
+              <div>
+                <h2 id="booking-history-title">All Bookings</h2>
+                <p>
+                  Showing {allBookingsSorted.length} booking
+                  {allBookingsSorted.length === 1 ? "" : "s"}.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => {
+                  setShowAllBookings(false);
+                }}
+              >
+                Close
+              </button>
+            </div>
+
+            {allBookingsSorted.length === 0 ? (
+              <p>No bookings were found.</p>
+            ) : (
+              <div className="booking-history-list">
+                {allBookingsSorted.map((booking) => (
+                  <article
+                    className="booking-history-card"
+                    key={booking.id}
+                  >
+                    <div className="booking-history-card-heading">
+                      <div>
+                        <h3>
+                          {booking.experienceName || "Experience Booking"}
+                        </h3>
+                        <p>
+                          {formatBookingDateTime(
+                            booking.appointmentDateTime,
+                          )}
+                        </p>
+                      </div>
+
+                      <span className="booking-history-status">
+                        {getBookingDisplayStatus(booking)}
+                      </span>
+                    </div>
+
+                    <dl className="booking-history-details">
+                      <div>
+                        <dt>Customer</dt>
+                        <dd>{booking.customerName}</dd>
+                      </div>
+
+                      <div>
+                        <dt>Email</dt>
+                        <dd>{booking.customerEmail}</dd>
+                      </div>
+
+                      <div>
+                        <dt>Phone</dt>
+                        <dd>{booking.customerPhone || "Not set"}</dd>
+                      </div>
+
+                      <div>
+                        <dt>Location</dt>
+                        <dd>{booking.location || "Not set"}</dd>
+                      </div>
+
+                      <div>
+                        <dt>Amount</dt>
+                        <dd>
+                          {formatBookingAmount(booking.amountInCents)}
+                        </dd>
+                      </div>
+
+                      <div>
+                        <dt>Booking Status</dt>
+                        <dd>{booking.status || "Not set"}</dd>
+                      </div>
+
+                      <div>
+                        <dt>Payment Status</dt>
+                        <dd>{booking.paymentStatus || "Not set"}</dd>
+                      </div>
+
+                      {booking.paidAt && (
+                        <div>
+                          <dt>Paid</dt>
+                          <dd>{formatBookingDateTime(booking.paidAt)}</dd>
+                        </div>
+                      )}
+                    </dl>
+                  </article>
+                ))}
+              </div>
+            )}
+          </section>
+        </div>
       )}
     </main>
   );

@@ -481,7 +481,7 @@ function AppointmentCalendar() {
         },
       ]);
 
-      alert("Your booking request was sent and is pending owner approval.");
+      alert("Your booking request was sent and is pending owner approval. Please check your email for confirmation.");
 
       setSelectedExperience(null);
       setAppointmentTitle("");
