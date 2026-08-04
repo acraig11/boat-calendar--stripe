@@ -8,14 +8,6 @@ import {
 import Stripe from "stripe";
 import { env } from "$amplify/env/stripe-api";
 
-type StripeApiEnvironment = typeof env & {
-  EMAILJS_SERVICE_ID: string;
-  EMAILJS_TEMPLATE_ID: string;
-  EMAILJS_PUBLIC_KEY: string;
-};
-
-const functionEnv = env as StripeApiEnvironment;
-
 type ApiGatewayEvent = {
   httpMethod?: string;
   path?: string;
@@ -44,6 +36,7 @@ type BookingRecord = {
   id: string;
   customerName?: string;
   customerEmail?: string;
+  customerUserId?: string;
   appointmentDateTime?: string;
   experienceId?: string;
   experienceName?: string;
@@ -56,7 +49,6 @@ type BookingRecord = {
   stripePaymentIntentId?: string;
   paymentExpiresAt?: string;
   paidAt?: string;
-  paymentConfirmationEmailSent?: boolean;
 };
 
 type OwnerProfileRecord = {
@@ -285,6 +277,141 @@ async function validateBookingForOwner(event: ApiGatewayEvent): Promise<
   return { ownerProfile, booking };
 }
 
+async function validateBookingForCustomer(
+  event: ApiGatewayEvent,
+): Promise<
+  | {
+      response: ApiGatewayResponse;
+      booking?: never;
+    }
+  | {
+      response?: never;
+      booking: BookingRecord;
+    }
+> {
+  const signedInUserId =
+    event.requestContext?.authorizer?.claims?.sub;
+
+  if (!signedInUserId) {
+    return {
+      response: jsonResponse(401, {
+        success: false,
+        message: "The signed-in customer could not be identified.",
+      }),
+    };
+  }
+
+  let request: BookingRequest;
+
+  try {
+    request = parseRequestBody(event.body);
+  } catch (error: unknown) {
+    return {
+      response: jsonResponse(400, {
+        success: false,
+        message:
+          error instanceof Error
+            ? error.message
+            : "The request body is invalid.",
+      }),
+    };
+  }
+
+  const bookingId = request.bookingId?.trim();
+
+  if (!bookingId) {
+    return {
+      response: jsonResponse(400, {
+        success: false,
+        message: "bookingId is required.",
+      }),
+    };
+  }
+
+  const booking = await getBooking(bookingId);
+
+  if (!booking) {
+    return {
+      response: jsonResponse(404, {
+        success: false,
+        message: "The booking could not be found.",
+      }),
+    };
+  }
+
+  if (!booking.customerUserId) {
+    return {
+      response: jsonResponse(403, {
+        success: false,
+        message:
+          "This older booking is not linked to a customer account.",
+      }),
+    };
+  }
+
+  if (booking.customerUserId !== signedInUserId) {
+    return {
+      response: jsonResponse(403, {
+        success: false,
+        message: "This booking does not belong to the signed-in customer.",
+      }),
+    };
+  }
+
+  if (booking.status !== "ACCEPTED") {
+    return {
+      response: jsonResponse(409, {
+        success: false,
+        message:
+          "The booking must be accepted before payment can begin.",
+        currentStatus: booking.status ?? null,
+      }),
+    };
+  }
+
+  if (booking.paymentStatus === "PAID") {
+    return {
+      response: jsonResponse(409, {
+        success: false,
+        message: "This booking has already been paid.",
+      }),
+    };
+  }
+
+  if (booking.paymentStatus !== "AWAITING_PAYMENT") {
+    return {
+      response: jsonResponse(409, {
+        success: false,
+        message: "This booking is not awaiting payment.",
+        currentPaymentStatus: booking.paymentStatus ?? null,
+      }),
+    };
+  }
+
+  if (
+    !Number.isInteger(booking.amountInCents) ||
+    (booking.amountInCents ?? 0) <= 0
+  ) {
+    return {
+      response: jsonResponse(409, {
+        success: false,
+        message: "The booking does not have a valid payment amount.",
+      }),
+    };
+  }
+
+  if (!booking.customerEmail) {
+    return {
+      response: jsonResponse(409, {
+        success: false,
+        message: "The booking does not have a customer email address.",
+      }),
+    };
+  }
+
+  return { booking };
+}
+
 function safeBookingResponse(booking: BookingRecord) {
   return {
     id: booking.id,
@@ -317,24 +444,20 @@ async function handleBookingPaymentDetails(
   });
 }
 
-async function handleCreateCheckoutSession(
-  event: ApiGatewayEvent,
+async function createOrReuseCheckoutSession(
+  booking: BookingRecord,
 ): Promise<ApiGatewayResponse> {
-  const validation = await validateBookingForOwner(event);
-
-  if (validation.response) {
-    return validation.response;
-  }
-
-  const booking = validation.booking;
-
   if (booking.stripeCheckoutSessionId) {
     try {
-      const existingSession = await stripe.checkout.sessions.retrieve(
-        booking.stripeCheckoutSessionId,
-      );
+      const existingSession =
+        await stripe.checkout.sessions.retrieve(
+          booking.stripeCheckoutSessionId,
+        );
 
-      if (existingSession.status === "open" && existingSession.url) {
+      if (
+        existingSession.status === "open" &&
+        existingSession.url
+      ) {
         return jsonResponse(200, {
           success: true,
           message: "The existing Stripe Checkout link is still active.",
@@ -364,6 +487,7 @@ async function handleCreateCheckoutSession(
       bookingId: booking.id,
       experienceId: booking.experienceId ?? "",
       ownerProfileId: booking.ownerProfileId ?? "",
+      customerUserId: booking.customerUserId ?? "",
     },
     line_items: [
       {
@@ -372,7 +496,9 @@ async function handleCreateCheckoutSession(
           currency: "usd",
           unit_amount: booking.amountInCents,
           product_data: {
-            name: booking.experienceName ?? "Coast Life Experience",
+            name:
+              booking.experienceName ??
+              "Coast Life Experience",
             description: booking.appointmentDateTime
               ? `Booking for ${new Date(
                   booking.appointmentDateTime,
@@ -382,12 +508,14 @@ async function handleCreateCheckoutSession(
         },
       },
     ],
-    success_url: `${appUrl}/booking/payment-success?bookingId=${encodeURIComponent(
-      booking.id,
-    )}&session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url: `${appUrl}/?payment=cancelled&bookingId=${encodeURIComponent(
-      booking.id,
-    )}`,
+    success_url:
+      `${appUrl}/booking/payment-success?bookingId=${encodeURIComponent(
+        booking.id,
+      )}&session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url:
+      `${appUrl}/?payment=cancelled&bookingId=${encodeURIComponent(
+        booking.id,
+      )}`,
   });
 
   if (!session.url) {
@@ -446,125 +574,28 @@ async function handleCreateCheckoutSession(
   });
 }
 
-function formatWebhookAppointment(appointmentDateTime: string | undefined): {
-  appointmentDate: string;
-  appointmentTime: string;
-} {
-  if (!appointmentDateTime) {
-    return {
-      appointmentDate: "Not set",
-      appointmentTime: "Not set",
-    };
+async function handleCreateCheckoutSession(
+  event: ApiGatewayEvent,
+): Promise<ApiGatewayResponse> {
+  const validation = await validateBookingForOwner(event);
+
+  if (validation.response) {
+    return validation.response;
   }
 
-  const appointment = new Date(appointmentDateTime);
-
-  if (Number.isNaN(appointment.getTime())) {
-    return {
-      appointmentDate: appointmentDateTime,
-      appointmentTime: "Not set",
-    };
-  }
-
-  return {
-    appointmentDate: appointment.toLocaleDateString("en-US", {
-      weekday: "short",
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    }),
-    appointmentTime: appointment.toLocaleTimeString("en-US", {
-      hour: "numeric",
-      minute: "2-digit",
-    }),
-  };
+  return createOrReuseCheckoutSession(validation.booking);
 }
 
-async function sendPaymentConfirmationEmail(
-  booking: BookingRecord,
-  session: Stripe.Checkout.Session,
-): Promise<void> {
-  const recipientEmail =
-    booking.customerEmail?.trim() ??
-    session.customer_details?.email?.trim() ??
-    session.customer_email?.trim();
+async function handleCustomerCreateCheckoutSession(
+  event: ApiGatewayEvent,
+): Promise<ApiGatewayResponse> {
+  const validation = await validateBookingForCustomer(event);
 
-  if (!recipientEmail) {
-    throw new Error(
-      `Booking ${booking.id} does not have a customer email address.`,
-    );
+  if (validation.response) {
+    return validation.response;
   }
 
-  const { appointmentDate, appointmentTime } = formatWebhookAppointment(
-    booking.appointmentDateTime,
-  );
-
-  const amountPaidInCents = session.amount_total ?? booking.amountInCents ?? 0;
-
-  const amountPaid = new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-  }).format(amountPaidInCents / 100);
-
-  const subject = "Payment Received — Your Coast Life Booking Is Confirmed";
-
-  const message = [
-    `Hello ${booking.customerName?.trim() || "Customer"},`,
-    "",
-    "We received your payment.",
-    "Your Coast Life booking is now confirmed.",
-    "",
-    `Experience: ${booking.experienceName || "Not set"}`,
-    `Location: ${booking.location || "Not set"}`,
-    `Appointment Date: ${appointmentDate}`,
-    `Appointment Time: ${appointmentTime}`,
-    `Amount Paid: ${amountPaid}`,
-    "",
-    "Thank you. We look forward to seeing you.",
-  ].join("\n");
-
-  const response = await fetch("https://api.emailjs.com/api/v1.0/email/send", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      service_id: functionEnv.EMAILJS_SERVICE_ID,
-      template_id: functionEnv.EMAILJS_TEMPLATE_ID,
-      user_id: functionEnv.EMAILJS_PUBLIC_KEY,
-      template_params: {
-        subject,
-        message,
-
-        to_email: recipientEmail,
-        cc_email: "alan_craig@msn.com",
-
-        customer_name: booking.customerName?.trim() ?? "",
-        customer_email: recipientEmail,
-
-        experience_name: booking.experienceName ?? "",
-        location: booking.location ?? "",
-
-        appointment_date: appointmentDate,
-        appointment_time: appointmentTime,
-
-        booking_status: "CONFIRMED",
-        payment_status: "PAID",
-        amount_paid: amountPaid,
-        stripe_checkout_session_id: session.id,
-      },
-    }),
-  });
-
-  if (!response.ok) {
-    const responseText = await response.text();
-
-    throw new Error(
-      `EmailJS payment confirmation failed. Status: ${response.status}. ${responseText}`,
-    );
-  }
-
-  console.log(`Payment confirmation email sent for Booking ${booking.id}.`);
+  return createOrReuseCheckoutSession(validation.booking);
 }
 
 async function markBookingPaid(
@@ -637,35 +668,6 @@ async function markBookingPaid(
     stripePaymentIntentId: paymentIntentId ?? undefined,
     paidAt,
   };
-}
-
-async function sendConfirmationEmailIfNeeded(
-  booking: BookingRecord,
-  session: Stripe.Checkout.Session,
-): Promise<void> {
-  if (booking.paymentConfirmationEmailSent) {
-    console.log(
-      `Payment confirmation email was already sent for Booking ${booking.id}.`,
-    );
-    return;
-  }
-
-  await sendPaymentConfirmationEmail(booking, session);
-
-  await dynamoDb.send(
-    new UpdateCommand({
-      TableName: env.BOOKING_TABLE_NAME,
-      Key: { id: booking.id },
-      UpdateExpression: "SET paymentConfirmationEmailSent = :emailSent",
-      ConditionExpression:
-        "stripeCheckoutSessionId = :checkoutSessionId AND paymentStatus = :paid",
-      ExpressionAttributeValues: {
-        ":emailSent": true,
-        ":checkoutSessionId": session.id,
-        ":paid": "PAID",
-      },
-    }),
-  );
 }
 
 async function handlePaymentSuccessDetails(
@@ -766,12 +768,7 @@ async function handleStripeWebhook(
       case "checkout.session.async_payment_succeeded": {
         const session = stripeEvent.data.object as Stripe.Checkout.Session;
 
-        const paidBooking = await markBookingPaid(session);
-
-        if (paidBooking) {
-          await sendConfirmationEmailIfNeeded(paidBooking, session);
-        }
-
+        await markBookingPaid(session);
         break;
       }
 
@@ -817,6 +814,15 @@ export const handler = async (
       event.path?.endsWith("/stripe-webhook")
     ) {
       return await handleStripeWebhook(event);
+    }
+
+    if (
+      event.httpMethod === "POST" &&
+      event.path?.endsWith(
+        "/customer-create-checkout-session",
+      )
+    ) {
+      return await handleCustomerCreateCheckoutSession(event);
     }
 
     if (

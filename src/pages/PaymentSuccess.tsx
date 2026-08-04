@@ -86,7 +86,7 @@ export default function PaymentSuccess() {
           </p>
         )}
 
-        <p>A confirmation email has been sent.</p>
+        <p>A confirmation message has been sent please check your messages in the dashboard.</p>
         <Link to="/">Return Home</Link>
       </section>
     </main>

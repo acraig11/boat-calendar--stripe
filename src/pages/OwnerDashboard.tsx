@@ -7,7 +7,6 @@ import { client } from "../lib/amplifyClient";
 import outputs from "../../amplify_outputs.json";
 import "./OwnerDashboard.css";
 import "./OwnerBookingRequests.css";
-import { sendBookingDecisionEmail } from "../utils/email";
 
 type OwnerProfile = Awaited<
   ReturnType<typeof client.models.ExperienceOwnerProfile.list>
@@ -19,6 +18,10 @@ type Experience = Awaited<
 
 type Booking = Awaited<
   ReturnType<typeof client.models.Booking.list>
+>["data"][number];
+
+type BookingMessage = Awaited<
+  ReturnType<typeof client.models.BookingMessage.list>
 >["data"][number];
 
 type ExperienceCalendarEvent = Awaited<
@@ -159,6 +162,27 @@ function DashboardContent({
     null,
   );
   const [showAllBookings, setShowAllBookings] = useState(false);
+  const [expandedMessagesBookingId, setExpandedMessagesBookingId] =
+    useState<string | null>(null);
+  const [bookingMessages, setBookingMessages] = useState<
+    Record<string, BookingMessage[]>
+  >({});
+  const [messageDrafts, setMessageDrafts] = useState<Record<string, string>>(
+    {},
+  );
+  const [loadingMessagesBookingId, setLoadingMessagesBookingId] =
+    useState<string | null>(null);
+  const [sendingMessageBookingId, setSendingMessageBookingId] =
+    useState<string | null>(null);
+  const [messageErrors, setMessageErrors] = useState<Record<string, string>>(
+    {},
+  );
+  const [editingDateBookingId, setEditingDateBookingId] =
+    useState<string | null>(null);
+  const [proposedBookingDate, setProposedBookingDate] = useState("");
+  const [proposedBookingTime, setProposedBookingTime] = useState("09:00");
+  const [updatingDateBookingId, setUpdatingDateBookingId] =
+    useState<string | null>(null);
 
   const [profileName, setProfileName] = useState("");
   const [profilePhone, setProfilePhone] = useState("");
@@ -688,10 +712,434 @@ function DashboardContent({
         new Date(second.booking.appointmentDateTime).getTime(),
     );
 
+  async function loadBookingMessages(bookingId: string) {
+    try {
+      setLoadingMessagesBookingId(bookingId);
+      setMessageErrors((current) => ({
+        ...current,
+        [bookingId]: "",
+      }));
+
+      const result = await client.models.BookingMessage.list({
+        filter: {
+          bookingId: {
+            eq: bookingId,
+          },
+        },
+      });
+
+      if (result.errors?.length) {
+        throw new Error(
+          result.errors.map((error) => error.message).join(", "),
+        );
+      }
+
+      const conversationMessages = result.data
+        .filter((bookingMessage) => bookingMessage.messageType === "CHAT")
+        .sort(
+          (first, second) =>
+            new Date(first.createdAt).getTime() -
+            new Date(second.createdAt).getTime(),
+        );
+
+      setBookingMessages((current) => ({
+        ...current,
+        [bookingId]: conversationMessages,
+      }));
+    } catch (error: unknown) {
+      console.error("Could not load owner booking messages:", error);
+
+      setMessageErrors((current) => ({
+        ...current,
+        [bookingId]:
+          error instanceof Error
+            ? error.message
+            : "The booking conversation could not be loaded.",
+      }));
+    } finally {
+      setLoadingMessagesBookingId(null);
+    }
+  }
+
+  async function toggleBookingMessages(bookingId: string) {
+    if (expandedMessagesBookingId === bookingId) {
+      setExpandedMessagesBookingId(null);
+      return;
+    }
+
+    setExpandedMessagesBookingId(bookingId);
+    await loadBookingMessages(bookingId);
+  }
+
+  async function sendOwnerMessage(booking: Booking) {
+    const draft = messageDrafts[booking.id]?.trim() ?? "";
+
+    if (!draft) {
+      setMessageErrors((current) => ({
+        ...current,
+        [booking.id]: "Enter a message before sending.",
+      }));
+      return;
+    }
+
+    if (!profile) {
+      setMessageErrors((current) => ({
+        ...current,
+        [booking.id]: "The owner profile could not be found.",
+      }));
+      return;
+    }
+
+    if (!booking.customerUserId) {
+      setMessageErrors((current) => ({
+        ...current,
+        [booking.id]:
+          "This booking is not linked to a customer account.",
+      }));
+      return;
+    }
+
+    try {
+      setSendingMessageBookingId(booking.id);
+      setMessageErrors((current) => ({
+        ...current,
+        [booking.id]: "",
+      }));
+
+      const currentUser = await getCurrentUser();
+
+      if (currentUser.userId !== profile.userId) {
+        throw new Error(
+          "The signed-in user does not match this owner profile.",
+        );
+      }
+
+      const result = await client.models.BookingMessage.create({
+        bookingId: booking.id,
+        customerUserId: booking.customerUserId,
+        ownerUserId: currentUser.userId,
+        ownerProfileId: profile.id,
+        senderUserId: currentUser.userId,
+        senderRole: "OWNER",
+        senderName: profile.name,
+        message: draft,
+        messageType: "CHAT",
+        readByOwnerAt: new Date().toISOString(),
+      });
+
+      if (result.errors?.length) {
+        throw new Error(
+          result.errors.map((error) => error.message).join(", "),
+        );
+      }
+
+      if (!result.data) {
+        throw new Error("The owner message was not created.");
+      }
+
+      setBookingMessages((current) => ({
+        ...current,
+        [booking.id]: [
+          ...(current[booking.id] ?? []),
+          result.data,
+        ],
+      }));
+
+      setMessageDrafts((current) => ({
+        ...current,
+        [booking.id]: "",
+      }));
+    } catch (error: unknown) {
+      console.error("Could not send owner message:", error);
+
+      setMessageErrors((current) => ({
+        ...current,
+        [booking.id]:
+          error instanceof Error
+            ? error.message
+            : "The message could not be sent.",
+      }));
+    } finally {
+      setSendingMessageBookingId(null);
+    }
+  }
+
+  function beginBookingDateUpdate(booking: Booking) {
+    const currentDate = new Date(booking.appointmentDateTime);
+
+    if (Number.isNaN(currentDate.getTime())) {
+      setMessage("The current booking date is invalid.");
+      return;
+    }
+
+    const year = currentDate.getFullYear();
+    const month = String(currentDate.getMonth() + 1).padStart(2, "0");
+    const day = String(currentDate.getDate()).padStart(2, "0");
+    const hours = String(currentDate.getHours()).padStart(2, "0");
+    const minutes = String(currentDate.getMinutes()).padStart(2, "0");
+
+    setProposedBookingDate(`${year}-${month}-${day}`);
+    setProposedBookingTime(`${hours}:${minutes}`);
+    setEditingDateBookingId(booking.id);
+    setMessage("");
+  }
+
+  function cancelBookingDateUpdate() {
+    if (updatingDateBookingId) {
+      return;
+    }
+
+    setEditingDateBookingId(null);
+    setProposedBookingDate("");
+    setProposedBookingTime("09:00");
+  }
+
+  async function updateBookingDate(
+    request: PendingBookingRequest,
+  ) {
+    if (!profile) {
+      setMessage("The owner profile could not be found.");
+      return;
+    }
+
+    if (!request.calendarEvent) {
+      setMessage(
+        "This booking does not have a matching calendar event to update.",
+      );
+      return;
+    }
+
+    if (!request.booking.customerUserId) {
+      setMessage(
+        "This booking is not linked to a customer account, so the date-change message cannot be created.",
+      );
+      return;
+    }
+
+    if (!proposedBookingDate || !proposedBookingTime) {
+      setMessage("Choose the agreed date and time.");
+      return;
+    }
+
+    const proposedDateTime = new Date(
+      `${proposedBookingDate}T${proposedBookingTime}:00`,
+    );
+
+    if (Number.isNaN(proposedDateTime.getTime())) {
+      setMessage("The proposed date or time is invalid.");
+      return;
+    }
+
+    if (proposedDateTime.getTime() < Date.now()) {
+      setMessage("The new booking date and time must be in the future.");
+      return;
+    }
+
+    const proposedDateKey = proposedBookingDate;
+
+    const conflictingEvent = calendarEvents.find((calendarEvent) => {
+      if (
+        calendarEvent.id === request.calendarEvent?.id ||
+        calendarEvent.experienceId !== request.booking.experienceId
+      ) {
+        return false;
+      }
+
+      if (
+        calendarEvent.status !== "PENDING" &&
+        calendarEvent.status !== "ACCEPTED" &&
+        calendarEvent.status !== "BLOCKED"
+      ) {
+        return false;
+      }
+
+      const eventDate = new Date(calendarEvent.startDateTime);
+
+      if (Number.isNaN(eventDate.getTime())) {
+        return false;
+      }
+
+      const eventDateKey = [
+        eventDate.getFullYear(),
+        String(eventDate.getMonth() + 1).padStart(2, "0"),
+        String(eventDate.getDate()).padStart(2, "0"),
+      ].join("-");
+
+      return eventDateKey === proposedDateKey;
+    });
+
+    if (conflictingEvent) {
+      setMessage(
+        "That date is already unavailable for this experience. Choose another date.",
+      );
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Update this booking to ${proposedDateTime.toLocaleString("en-US", {
+        weekday: "long",
+        month: "long",
+        day: "numeric",
+        year: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+      })}?`,
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    const previousCalendarDateTime =
+      request.calendarEvent.startDateTime;
+
+    try {
+      setUpdatingDateBookingId(request.booking.id);
+      setMessage("");
+
+      const calendarResult =
+        await client.models.ExperienceCalendarEvent.update({
+          id: request.calendarEvent.id,
+          startDateTime: proposedDateTime.toISOString(),
+        });
+
+      if (calendarResult.errors?.length) {
+        throw new Error(
+          calendarResult.errors
+            .map((error) => error.message)
+            .join(", "),
+        );
+      }
+
+      if (!calendarResult.data) {
+        throw new Error(
+          "The calendar event date could not be updated.",
+        );
+      }
+
+      const bookingResult = await client.models.Booking.update({
+        id: request.booking.id,
+        appointmentDateTime: proposedDateTime.toISOString(),
+      });
+
+      if (bookingResult.errors?.length || !bookingResult.data) {
+        try {
+          await client.models.ExperienceCalendarEvent.update({
+            id: request.calendarEvent.id,
+            startDateTime: previousCalendarDateTime,
+          });
+        } catch (rollbackError: unknown) {
+          console.error(
+            "The booking update failed and the calendar rollback also failed:",
+            rollbackError,
+          );
+        }
+
+        throw new Error(
+          bookingResult.errors?.length
+            ? bookingResult.errors
+                .map((error) => error.message)
+                .join(", ")
+            : "The Booking date could not be updated.",
+        );
+      }
+
+      const currentUser = await getCurrentUser();
+
+      const messageResult =
+        await client.models.BookingMessage.create({
+          bookingId: request.booking.id,
+          customerUserId: request.booking.customerUserId,
+          ownerUserId: currentUser.userId,
+          ownerProfileId: profile.id,
+          senderUserId: currentUser.userId,
+          senderRole: "OWNER",
+          senderName: profile.name,
+          message: `As agreed, the booking date was updated to ${proposedDateTime.toLocaleString(
+            "en-US",
+            {
+              weekday: "long",
+              month: "long",
+              day: "numeric",
+              year: "numeric",
+              hour: "numeric",
+              minute: "2-digit",
+            },
+          )}.`,
+          messageType: "CHAT",
+          readByOwnerAt: new Date().toISOString(),
+        });
+
+      if (messageResult.errors?.length) {
+        throw new Error(
+          messageResult.errors
+            .map((error) => error.message)
+            .join(", "),
+        );
+      }
+
+      setCalendarEvents((currentEvents) =>
+        currentEvents.map((calendarEvent) =>
+          calendarEvent.id === calendarResult.data?.id
+            ? calendarResult.data
+            : calendarEvent,
+        ),
+      );
+
+      setBookings((currentBookings) =>
+        currentBookings.map((booking) =>
+          booking.id === bookingResult.data?.id
+            ? bookingResult.data
+            : booking,
+        ),
+      );
+
+      if (messageResult.data) {
+        setBookingMessages((current) => ({
+          ...current,
+          [request.booking.id]: [
+            ...(current[request.booking.id] ?? []),
+            messageResult.data,
+          ],
+        }));
+      }
+
+      setEditingDateBookingId(null);
+      setProposedBookingDate("");
+      setProposedBookingTime("09:00");
+
+      setMessage(
+        `${request.booking.customerName}'s booking date was updated successfully.`,
+      );
+    } catch (error: unknown) {
+      console.error("Could not update the booking date:", error);
+
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "The booking date could not be updated.",
+      );
+    } finally {
+      setUpdatingDateBookingId(null);
+    }
+  }
+
   async function updateBookingStatus(
     request: PendingBookingRequest,
     status: "ACCEPTED" | "REJECTED",
   ) {
+    if (!profile) {
+      setMessage("The owner profile could not be found.");
+      return;
+    }
+
+    if (!request.booking.customerUserId) {
+      setMessage(
+        "This booking does not contain the customer's account ID, so an in-app message cannot be created.",
+      );
+      return;
+    }
+
     if (!request.calendarEvent) {
       setMessage(
         "This booking does not have a matching calendar event to update.",
@@ -753,44 +1201,91 @@ function DashboardContent({
       );
 
       try {
-        let paymentUrl: string | undefined;
-
         if (status === "ACCEPTED") {
-          setMessage("Creating the secure Stripe payment link...");
+          setMessage("Creating the secure Stripe payment session...");
 
-          const checkout = await createCheckoutSession(request.booking.id);
-          paymentUrl = checkout.checkoutUrl;
+          await createCheckoutSession(request.booking.id);
 
+          const approvedMessageResult =
+            await client.models.BookingMessage.create({
+              bookingId: request.booking.id,
+              customerUserId: request.booking.customerUserId,
+              ownerUserId: profile.userId,
+              ownerProfileId: profile.id,
+              senderRole: "SYSTEM",
+              senderName: "Coast Life",
+              message: "Your booking request has been approved.",
+              messageType: "BOOKING_APPROVED",
+            });
+
+          if (approvedMessageResult.errors?.length) {
+            throw new Error(
+              approvedMessageResult.errors
+                .map((error) => error.message)
+                .join(", "),
+            );
+          }
+
+          const awaitingPaymentMessageResult =
+            await client.models.BookingMessage.create({
+              bookingId: request.booking.id,
+              customerUserId: request.booking.customerUserId,
+              ownerUserId: profile.userId,
+              ownerProfileId: profile.id,
+              senderRole: "SYSTEM",
+              senderName: "Coast Life",
+              message:
+                "Your booking will be confirmed once payment is received.",
+              messageType: "AWAITING_PAYMENT",
+            });
+
+          if (awaitingPaymentMessageResult.errors?.length) {
+            throw new Error(
+              awaitingPaymentMessageResult.errors
+                .map((error) => error.message)
+                .join(", "),
+            );
+          }
+
+          setMessage(
+            `${request.booking.customerName}'s booking was approved and is awaiting payment. The customer can view the update in My Bookings.`,
+          );
+        } else {
+          const rejectedMessageResult =
+            await client.models.BookingMessage.create({
+              bookingId: request.booking.id,
+              customerUserId: request.booking.customerUserId,
+              ownerUserId: profile.userId,
+              ownerProfileId: profile.id,
+              senderRole: "SYSTEM",
+              senderName: "Coast Life",
+              message:
+                "Unfortunately, your booking request was not approved.",
+              messageType: "BOOKING_REJECTED",
+            });
+
+          if (rejectedMessageResult.errors?.length) {
+            throw new Error(
+              rejectedMessageResult.errors
+                .map((error) => error.message)
+                .join(", "),
+            );
+          }
+
+          setMessage(
+            `${request.booking.customerName}'s booking was rejected. The customer can view the update in My Bookings.`,
+          );
         }
-
-        await sendBookingDecisionEmail({
-          customerName: request.booking.customerName,
-          customerEmail: request.booking.customerEmail,
-          experienceName: request.booking.experienceName,
-          location: request.booking.location,
-          appointmentDateTime: request.booking.appointmentDateTime,
-          status,
-          ownerName: profile?.name,
-          ownerEmail: profile?.email,
-          ownerPhone: profile?.phone,
-          paymentUrl,
-        });
-
-        setMessage(
-          status === "ACCEPTED"
-            ? `${request.booking.customerName}'s booking was approved. The customer was emailed a secure payment link and informed that the booking will be confirmed once payment is received.`
-            : `${request.booking.customerName}'s booking was rejected, and the customer was emailed.`,
-        );
-      } catch (notificationError) {
+      } catch (notificationError: unknown) {
         console.error(
-          "The booking was updated, but the payment link or notification email failed:",
+          "The booking status was updated, but its Stripe session or in-app message could not be completed:",
           notificationError,
         );
 
         setMessage(
           status === "ACCEPTED"
-            ? `${request.booking.customerName}'s booking was approved and is awaiting payment, but the payment link or approval email could not be completed.`
-            : `${request.booking.customerName}'s booking was rejected, but the notification email could not be sent.`,
+            ? `${request.booking.customerName}'s booking was approved, but the payment session or in-app message could not be completed.`
+            : `${request.booking.customerName}'s booking was rejected, but the in-app message could not be created.`,
         );
       }
     } catch (error) {
@@ -805,7 +1300,6 @@ function DashboardContent({
       setUpdatingBookingId(null);
     }
   }
-
 
   async function createCheckoutSession(
     bookingId: string,
@@ -874,7 +1368,6 @@ function DashboardContent({
       reused: responseData.reused,
     };
   }
-
 
   if (isLoading) {
     return <p>Loading owner dashboard...</p>;
@@ -1053,6 +1546,220 @@ function DashboardContent({
                         </div>
                       </dl>
 
+                      <div className="booking-date-update-section">
+                        {editingDateBookingId !== booking.id ? (
+                          <button
+                            type="button"
+                            className="secondary-button"
+                            disabled={
+                              updatingDateBookingId === booking.id ||
+                              !calendarEvent
+                            }
+                            onClick={() => {
+                              beginBookingDateUpdate(booking);
+                            }}
+                          >
+                            Update Booking Date
+                          </button>
+                        ) : (
+                          <div className="booking-date-update-panel">
+                            <p>
+                              <strong>Update to the agreed date and time</strong>
+                            </p>
+
+                            <div className="booking-date-update-fields">
+                              <label>
+                                Date
+                                <input
+                                  type="date"
+                                  value={proposedBookingDate}
+                                  min={new Date()
+                                    .toISOString()
+                                    .slice(0, 10)}
+                                  disabled={
+                                    updatingDateBookingId === booking.id
+                                  }
+                                  onChange={(event) => {
+                                    setProposedBookingDate(
+                                      event.target.value,
+                                    );
+                                  }}
+                                />
+                              </label>
+
+                              <label>
+                                Time
+                                <input
+                                  type="time"
+                                  value={proposedBookingTime}
+                                  disabled={
+                                    updatingDateBookingId === booking.id
+                                  }
+                                  onChange={(event) => {
+                                    setProposedBookingTime(
+                                      event.target.value,
+                                    );
+                                  }}
+                                />
+                              </label>
+                            </div>
+
+                            <div className="booking-date-update-actions">
+                              <button
+                                type="button"
+                                className="secondary-button"
+                                disabled={
+                                  updatingDateBookingId === booking.id
+                                }
+                                onClick={cancelBookingDateUpdate}
+                              >
+                                Cancel
+                              </button>
+
+                              <button
+                                type="button"
+                                className="primary-button"
+                                disabled={
+                                  updatingDateBookingId === booking.id ||
+                                  !proposedBookingDate ||
+                                  !proposedBookingTime
+                                }
+                                onClick={() => {
+                                  void updateBookingDate({
+                                    booking,
+                                    calendarEvent,
+                                  });
+                                }}
+                              >
+                                {updatingDateBookingId === booking.id
+                                  ? "Updating..."
+                                  : "Save New Date"}
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="booking-conversation-section">
+                        <button
+                          type="button"
+                          className="booking-conversation-toggle"
+                          aria-expanded={
+                            expandedMessagesBookingId === booking.id
+                          }
+                          onClick={() => {
+                            void toggleBookingMessages(booking.id);
+                          }}
+                        >
+                          <span>Messages</span>
+                          <span aria-hidden="true">
+                            {expandedMessagesBookingId === booking.id
+                              ? "▲"
+                              : "▼"}
+                          </span>
+                        </button>
+
+                        {expandedMessagesBookingId === booking.id && (
+                          <div className="booking-conversation-panel">
+                            <p className="booking-conversation-title">
+                              Conversation with {booking.customerName}
+                            </p>
+
+                            <p className="booking-conversation-purpose">
+                              Use this thread for alternate-date discussions,
+                              cancellation explanations, special instructions,
+                              and other booking questions.
+                            </p>
+
+                            {loadingMessagesBookingId === booking.id ? (
+                              <p>Loading messages...</p>
+                            ) : (bookingMessages[booking.id] ?? []).length ===
+                              0 ? (
+                              <p>No conversation messages yet.</p>
+                            ) : (
+                              <div className="booking-conversation-list">
+                                {(bookingMessages[booking.id] ?? []).map(
+                                  (bookingMessage) => (
+                                    <article
+                                      className={`booking-conversation-message ${
+                                        bookingMessage.senderRole === "OWNER"
+                                          ? "owner-message"
+                                          : "customer-message"
+                                      }`}
+                                      key={bookingMessage.id}
+                                    >
+                                      <div className="booking-conversation-meta">
+                                        <strong>
+                                          {bookingMessage.senderName ||
+                                            (bookingMessage.senderRole ===
+                                            "OWNER"
+                                              ? "Experience Owner"
+                                              : "Customer")}
+                                        </strong>
+
+                                        <span>
+                                          {new Date(
+                                            bookingMessage.createdAt,
+                                          ).toLocaleString("en-US", {
+                                            month: "short",
+                                            day: "numeric",
+                                            hour: "numeric",
+                                            minute: "2-digit",
+                                          })}
+                                        </span>
+                                      </div>
+
+                                      <p>{bookingMessage.message}</p>
+                                    </article>
+                                  ),
+                                )}
+                              </div>
+                            )}
+
+                            {messageErrors[booking.id] && (
+                              <p className="booking-conversation-error">
+                                {messageErrors[booking.id]}
+                              </p>
+                            )}
+
+                            <label className="booking-conversation-composer-label">
+                              Reply to customer
+                              <textarea
+                                rows={3}
+                                value={messageDrafts[booking.id] ?? ""}
+                                onChange={(event) => {
+                                  const value = event.target.value;
+
+                                  setMessageDrafts((current) => ({
+                                    ...current,
+                                    [booking.id]: value,
+                                  }));
+                                }}
+                                placeholder="Suggest another date, explain a cancellation, or share special instructions."
+                                disabled={
+                                  sendingMessageBookingId === booking.id
+                                }
+                              />
+                            </label>
+
+                            <button
+                              type="button"
+                              className="primary-button"
+                              disabled={
+                                sendingMessageBookingId === booking.id
+                              }
+                              onClick={() => {
+                                void sendOwnerMessage(booking);
+                              }}
+                            >
+                              {sendingMessageBookingId === booking.id
+                                ? "Sending..."
+                                : "Send Message"}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
                       {!calendarEvent && (
                         <p className="booking-request-warning">
                           No matching calendar event was found for this
@@ -1103,7 +1810,7 @@ function DashboardContent({
                           </>
                         ) : (
                           <p className="booking-payment-status-message">
-                            Payment instructions were emailed to the customer.
+                            Payment is awaiting completion by the customer.
                             This booking will be confirmed when payment is
                             received.
                           </p>

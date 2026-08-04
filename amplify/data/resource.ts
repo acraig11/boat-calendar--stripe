@@ -65,9 +65,11 @@ const schema = a.schema({
 
   Booking: a
     .model({
+      messages: a.hasMany("BookingMessage", "bookingId"),
       customerName: a.string().required(),
       customerEmail: a.email().required(),
       customerPhone: a.string(),
+      customerUserId: a.string(),
       appointmentDateTime: a.datetime().required(),
       experienceId: a.id().required(),
       experience: a.belongsTo("Experience", "experienceId"),
@@ -104,7 +106,46 @@ const schema = a.schema({
       allow.authenticated().to(["read", "update"]),
       allow.publicApiKey().to(["create"]),
     ]),
+BookingMessage: a
+  .model({
+    bookingId: a.id().required(),
+    booking: a.belongsTo("Booking", "bookingId"),
 
+    // Cognito user IDs for the two participants.
+    customerUserId: a.string().required(),
+    ownerUserId: a.string().required(),
+
+    // Retained so messages can be associated with the owner's profile.
+    ownerProfileId: a.id().required(),
+
+    senderUserId: a.string(),
+    senderRole: a.enum(["CUSTOMER", "OWNER", "SYSTEM"]),
+    senderName: a.string(),
+
+    message: a.string().required(),
+
+    messageType: a.enum([
+      "CHAT",
+      "BOOKING_RECEIVED",
+      "BOOKING_APPROVED",
+      "BOOKING_REJECTED",
+      "AWAITING_PAYMENT",
+      "PAYMENT_RECEIVED",
+      "BOOKING_CONFIRMED",
+    ]),
+
+    readByCustomerAt: a.datetime(),
+    readByOwnerAt: a.datetime(),
+  })
+  .secondaryIndexes((index) => [
+    index("bookingId"),
+    index("customerUserId"),
+    index("ownerUserId"),
+  ])
+  .authorization((allow) => [
+    allow.ownerDefinedIn("customerUserId"),
+    allow.ownerDefinedIn("ownerUserId"),
+  ]),
   ExperienceCalendarEvent: a
     .model({
       experienceId: a.id().required(),

@@ -88,3 +88,167 @@
     gap: 2px;
   }
 }
+
+/* Owner booking conversation panel */
+.booking-conversation-section {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid #e5e7eb;
+}
+
+.booking-conversation-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid #dbe3ec;
+  border-radius: 12px;
+  background: #f8fafc;
+  color: #1f2937;
+  font-size: 15px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.booking-conversation-panel {
+  margin-top: 10px;
+  padding: 14px;
+  border: 1px solid #dbe3ec;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.booking-conversation-title {
+  margin: 0 0 6px;
+  font-weight: 800;
+}
+
+.booking-conversation-purpose {
+  margin: 0 0 14px;
+  color: #666;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.booking-conversation-list {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.booking-conversation-message {
+  padding: 12px;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 12px;
+}
+
+.booking-conversation-message.owner-message {
+  margin-left: 36px;
+  background: #e8f3ff;
+}
+
+.booking-conversation-message.customer-message {
+  margin-right: 36px;
+  background: #f3f4f6;
+}
+
+.booking-conversation-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  color: #555;
+  font-size: 12px;
+}
+
+.booking-conversation-message p {
+  margin: 7px 0 0;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.booking-conversation-composer-label {
+  display: block;
+  margin-top: 12px;
+  color: #333;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.booking-conversation-composer-label textarea {
+  width: 100%;
+  margin-top: 7px;
+  padding: 11px;
+  border: 1px solid #d1d5db;
+  border-radius: 11px;
+  font: inherit;
+  resize: vertical;
+  box-sizing: border-box;
+}
+
+.booking-conversation-error {
+  margin: 10px 0;
+  color: #c62828;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+/* Owner booking date update */
+.booking-date-update-section {
+  margin-top: 16px;
+}
+
+.booking-date-update-panel {
+  padding: 14px;
+  border: 1px solid #dbe3ec;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+.booking-date-update-panel p {
+  margin: 0 0 12px;
+}
+
+.booking-date-update-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.booking-date-update-fields label {
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.booking-date-update-fields input {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 10px;
+  box-sizing: border-box;
+  font: inherit;
+}
+
+.booking-date-update-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+@media (max-width: 640px) {
+  .booking-date-update-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .booking-date-update-actions {
+    flex-direction: column-reverse;
+  }
+
+  .booking-date-update-actions button {
+    width: 100%;
+  }
+}

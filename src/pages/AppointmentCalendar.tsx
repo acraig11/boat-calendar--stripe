@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import DatePicker from "react-datepicker";
-
+import { Authenticator } from "@aws-amplify/ui-react";
+import "@aws-amplify/ui-react/styles.css";
 import "react-datepicker/dist/react-datepicker.css";
 import "./AppointmentCalendar.css";
-
-import { sendBookingPendingEmail } from "../utils/email";
+import { getCurrentUser } from "aws-amplify/auth";
 import { getUrl } from "aws-amplify/storage";
 import { client } from "../lib/amplifyClient";
 
@@ -46,6 +46,24 @@ type CalendarEvent = {
   startDateTime: string;
   endDateTime?: string | null;
   status?: "PENDING" | "ACCEPTED" | "REJECTED" | "CANCELLED" | "BLOCKED" | null;
+};
+
+type BookingMessageRecord = {
+  id: string;
+  bookingId: string;
+  senderName?: string | null;
+  senderRole?: "CUSTOMER" | "OWNER" | "SYSTEM" | null;
+  message: string;
+  messageType?:
+    | "CHAT"
+    | "BOOKING_RECEIVED"
+    | "BOOKING_APPROVED"
+    | "BOOKING_REJECTED"
+    | "AWAITING_PAYMENT"
+    | "PAYMENT_RECEIVED"
+    | "BOOKING_CONFIRMED"
+    | null;
+  createdAt?: string | null;
 };
 
 function formatDateForStorage(date: Date): string {
@@ -114,7 +132,7 @@ function ExperienceImage({
   );
 }
 
-function AppointmentCalendar() {
+function AppointmentCalendarContent() {
   const [searchParams] = useSearchParams();
 
   const [experienceRecords, setExperienceRecords] = useState<Experience[]>([]);
@@ -144,8 +162,6 @@ function AppointmentCalendar() {
   const [selectedExperience, setSelectedExperience] =
     useState<Experience | null>(null);
 
-  const [appointmentTitle, setAppointmentTitle] = useState("");
-
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
 
   const [selectedTime, setSelectedTime] = useState("09:00");
@@ -157,6 +173,15 @@ function AppointmentCalendar() {
   const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
   const [isLoadingAvailability, setIsLoadingAvailability] = useState(false);
   const [availabilityError, setAvailabilityError] = useState("");
+
+  const [showMessages, setShowMessages] = useState(false);
+  const [messageBookingId, setMessageBookingId] = useState<string | null>(null);
+  const [messageExperienceName, setMessageExperienceName] = useState("");
+  const [bookingMessages, setBookingMessages] = useState<
+    BookingMessageRecord[]
+  >([]);
+  const [isLoadingMessages, setIsLoadingMessages] = useState(false);
+  const [messagesError, setMessagesError] = useState("");
 
   useEffect(() => {
     async function loadExperiences() {
@@ -314,7 +339,6 @@ function AppointmentCalendar() {
 
   const openAppointmentForm = (experience: Experience) => {
     setSelectedExperience(experience);
-    setAppointmentTitle(`${experience.name} reservation`);
     setSelectedDate(null);
     setSelectedTime("09:00");
     setShowContactForm(false);
@@ -326,7 +350,6 @@ function AppointmentCalendar() {
     }
 
     setSelectedExperience(null);
-    setAppointmentTitle("");
     setSelectedDate(null);
     setSelectedTime("09:00");
     setShowContactForm(false);
@@ -346,7 +369,63 @@ function AppointmentCalendar() {
     setShowContactForm(true);
   };
 
+  async function openBookingMessages(
+    bookingId: string,
+    experienceName: string,
+  ) {
+    setMessageBookingId(bookingId);
+    setMessageExperienceName(experienceName);
+    setShowMessages(true);
+    setIsLoadingMessages(true);
+    setMessagesError("");
+
+    try {
+      const result = await client.models.BookingMessage.list({
+        filter: {
+          bookingId: {
+            eq: bookingId,
+          },
+        },
+      });
+
+      if (result.errors?.length) {
+        throw new Error(
+          result.errors.map((error) => error.message).join(", "),
+        );
+      }
+
+      const messages: BookingMessageRecord[] = result.data
+        .map((message) => ({
+          id: message.id,
+          bookingId: message.bookingId,
+          senderName: message.senderName,
+          senderRole: message.senderRole,
+          message: message.message,
+          messageType: message.messageType,
+          createdAt: message.createdAt,
+        }))
+        .sort(
+          (first, second) =>
+            new Date(first.createdAt ?? 0).getTime() -
+            new Date(second.createdAt ?? 0).getTime(),
+        );
+
+      setBookingMessages(messages);
+    } catch (error: unknown) {
+      console.error("Could not load booking messages:", error);
+
+      setMessagesError(
+        error instanceof Error
+          ? error.message
+          : "The booking messages could not be loaded.",
+      );
+    } finally {
+      setIsLoadingMessages(false);
+    }
+  }
+
   const sendAppointmentRequest = async (contact: BookingContactData) => {
+    const currentUser = await getCurrentUser();
     if (!selectedExperience) {
       alert("Please select an experience.");
       return;
@@ -380,12 +459,39 @@ function AppointmentCalendar() {
         throw new Error("This experience does not have an owner profile ID.");
       }
 
+      const ownerProfileResult =
+        await client.models.ExperienceOwnerProfile.get(
+          {
+            id: selectedExperience.ownerProfileId,
+          },
+          {
+            authMode: "apiKey",
+          },
+        );
+
+      if (ownerProfileResult.errors?.length) {
+        throw new Error(
+          ownerProfileResult.errors
+            .map((error) => error.message)
+            .join(", "),
+        );
+      }
+
+      const ownerUserId = ownerProfileResult.data?.userId?.trim();
+
+      if (!ownerUserId) {
+        throw new Error(
+          "The experience owner's account ID could not be found.",
+        );
+      }
+
       const amountInCents =
         selectedExperience.estimatedPrice != null
           ? Math.round(selectedExperience.estimatedPrice * 100)
           : undefined;
 
       const bookingInput = {
+        customerUserId: currentUser.userId,
         customerName: contact.name.trim(),
         customerEmail: contact.email.trim(),
         customerPhone: contact.phone.trim(),
@@ -453,18 +559,40 @@ function AppointmentCalendar() {
 
       const calendarEvent = calendarResult.data;
 
+      let bookingMessageCreated = false;
+
       try {
-        await sendBookingPendingEmail({
-          customerName: contact.name.trim(),
-          customerEmail: contact.email.trim(),
-          experienceName: selectedExperience.name,
-          location: selectedExperience.location,
-          appointmentDateTime: appointmentDateTime.toISOString(),
+        const messageResult = await client.models.BookingMessage.create({
+          bookingId: booking.id,
+          customerUserId: currentUser.userId,
+          ownerUserId,
+          ownerProfileId: selectedExperience.ownerProfileId,
+          senderRole: "SYSTEM",
+          senderName: "Coast Life",
+          message:
+            "Your booking request was received and is awaiting owner review.",
+          messageType: "BOOKING_RECEIVED",
         });
-      } catch (emailError) {
+
+        if (messageResult.errors?.length) {
+          throw new Error(
+            messageResult.errors
+              .map((error) => error.message)
+              .join(", "),
+          );
+        }
+
+        if (!messageResult.data) {
+          throw new Error(
+            "The initial booking status message was not created.",
+          );
+        }
+
+        bookingMessageCreated = true;
+      } catch (messageError: unknown) {
         console.error(
-          "Booking was created, but the pending confirmation email failed:",
-          emailError,
+          "The booking was created, but its initial status message could not be created:",
+          messageError,
         );
       }
 
@@ -481,13 +609,23 @@ function AppointmentCalendar() {
         },
       ]);
 
-      alert("Your booking request was sent and is pending owner approval. Please check your email for confirmation.");
+      const completedExperienceName = selectedExperience.name;
 
       setSelectedExperience(null);
-      setAppointmentTitle("");
       setSelectedDate(null);
       setSelectedTime("09:00");
       setShowContactForm(false);
+
+      if (bookingMessageCreated) {
+        await openBookingMessages(
+          booking.id,
+          completedExperienceName,
+        );
+      } else {
+        alert(
+          "Your booking request was created, but its status message could not be added. The booking is still pending owner approval.",
+        );
+      }
     } catch (error: unknown) {
       console.error("Could not complete appointment request:", error);
 
@@ -803,8 +941,112 @@ function AppointmentCalendar() {
           </div>
         </div>
       )}
+
+      {showMessages && (
+        <div
+          className="booking-messages-overlay"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              setShowMessages(false);
+            }
+          }}
+        >
+          <section
+            className="booking-messages-sheet"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="booking-messages-title"
+          >
+            <div className="booking-messages-header">
+              <div>
+                <p className="experience-eyebrow">Booking Updates</p>
+                <h2 id="booking-messages-title">Messages</h2>
+                <p>{messageExperienceName}</p>
+              </div>
+
+              <button
+                type="button"
+                className="dialog-close"
+                aria-label="Close booking messages"
+                onClick={() => setShowMessages(false)}
+              >
+                ×
+              </button>
+            </div>
+
+            {isLoadingMessages && <p>Loading messages...</p>}
+
+            {messagesError && (
+              <p className="experience-status-message experience-error">
+                {messagesError}
+              </p>
+            )}
+
+            {!isLoadingMessages &&
+              !messagesError &&
+              bookingMessages.length === 0 && (
+                <p>No booking messages are available yet.</p>
+              )}
+
+            {!isLoadingMessages &&
+              !messagesError &&
+              bookingMessages.length > 0 && (
+                <div className="booking-message-list">
+                  {bookingMessages.map((bookingMessage) => (
+                    <article
+                      className="booking-message-card"
+                      key={bookingMessage.id}
+                    >
+                      <div className="booking-message-meta">
+                        <strong>
+                          {bookingMessage.senderName || "Coast Life"}
+                        </strong>
+
+                        {bookingMessage.createdAt && (
+                          <span>
+                            {new Date(
+                              bookingMessage.createdAt,
+                            ).toLocaleString("en-US", {
+                              month: "short",
+                              day: "numeric",
+                              hour: "numeric",
+                              minute: "2-digit",
+                            })}
+                          </span>
+                        )}
+                      </div>
+
+                      <p>{bookingMessage.message}</p>
+                    </article>
+                  ))}
+                </div>
+              )}
+
+            {messageBookingId && (
+              <p className="booking-message-reference">
+                Booking reference: {messageBookingId}
+              </p>
+            )}
+
+            <button
+              type="button"
+              className="save-button"
+              onClick={() => setShowMessages(false)}
+            >
+              Done
+            </button>
+          </section>
+        </div>
+      )}
     </main>
   );
 }
 
-export default AppointmentCalendar;
+export default function AppointmentCalendar() {
+  return (
+    <Authenticator>
+      {() => <AppointmentCalendarContent />}
+    </Authenticator>
+  );
+}
