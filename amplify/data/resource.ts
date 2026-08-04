@@ -4,22 +4,17 @@ const schema = a.schema({
   UserProfile: a
     .model({
       userId: a.string().required(),
-
       firstName: a.string(),
       lastName: a.string(),
       ownerEmail: a.email(),
       phoneNumber: a.string(),
-
       address: a.string(),
       city: a.string(),
       state: a.string(),
       zip: a.string(),
-
       age: a.integer(),
-
       apparelGender: a.string(),
       apparelSize: a.string(),
-
       rewardPoints: a.integer().default(0),
       content: a.string(),
       validatedResponse: a.string(),
@@ -29,16 +24,15 @@ const schema = a.schema({
   ExperienceOwnerProfile: a
     .model({
       userId: a.string().required(),
-
       name: a.string().required(),
       email: a.email().required(),
       phone: a.string(),
-
       experiences: a.hasMany("Experience", "ownerProfileId"),
-
       bookings: a.hasMany("Booking", "ownerProfileId"),
-
-      calendarEvents: a.hasMany("ExperienceCalendarEvent", "ownerProfileId"),
+      calendarEvents: a.hasMany(
+        "ExperienceCalendarEvent",
+        "ownerProfileId",
+      ),
     })
     .authorization((allow) => [
       allow.owner(),
@@ -53,14 +47,16 @@ const schema = a.schema({
       estimatedPrice: a.float(),
       imageUrl: a.string(),
       experienceType: a.string(),
-
       ownerProfileId: a.id().required(),
-
-      ownerProfile: a.belongsTo("ExperienceOwnerProfile", "ownerProfileId"),
-
+      ownerProfile: a.belongsTo(
+        "ExperienceOwnerProfile",
+        "ownerProfileId",
+      ),
       bookings: a.hasMany("Booking", "experienceId"),
-
-      calendarEvents: a.hasMany("ExperienceCalendarEvent", "experienceId"),
+      calendarEvents: a.hasMany(
+        "ExperienceCalendarEvent",
+        "experienceId",
+      ),
     })
     .authorization((allow) => [
       allow.owner(),
@@ -72,25 +68,35 @@ const schema = a.schema({
       customerName: a.string().required(),
       customerEmail: a.email().required(),
       customerPhone: a.string(),
-
       appointmentDateTime: a.datetime().required(),
-
       experienceId: a.id().required(),
-
       experience: a.belongsTo("Experience", "experienceId"),
-
       experienceName: a.string().required(),
       location: a.string(),
-
       ownerProfileId: a.id().required(),
-
-      ownerProfile: a.belongsTo("ExperienceOwnerProfile", "ownerProfileId"),
-
-      status: a.enum(["PENDING", "ACCEPTED", "REJECTED", "CANCELLED"]),
-
+      ownerProfile: a.belongsTo(
+        "ExperienceOwnerProfile",
+        "ownerProfileId",
+      ),
+      status: a.enum([
+        "PENDING",
+        "ACCEPTED",
+        "REJECTED",
+        "CANCELLED",
+      ]),
       emailSent: a.boolean(),
+      amountInCents: a.integer(),
+      paymentStatus: a.string(),
+      stripeCheckoutSessionId: a.string(),
+      stripePaymentIntentId: a.string(),
+      paymentExpiresAt: a.datetime(),
+      paidAt: a.datetime(),
+      refundedAt: a.datetime(),
 
-      // Amplify owner authorization field.
+      // Optional flag used by the Stripe webhook to prevent normal retries
+      // from sending the payment confirmation email again.
+      paymentConfirmationEmailSent: a.boolean(),
+
       owner: a.string(),
     })
     .authorization((allow) => [
@@ -102,20 +108,16 @@ const schema = a.schema({
   ExperienceCalendarEvent: a
     .model({
       experienceId: a.id().required(),
-
       experience: a.belongsTo("Experience", "experienceId"),
-
       experienceName: a.string().required(),
-
       ownerProfileId: a.id().required(),
-
-      ownerProfile: a.belongsTo("ExperienceOwnerProfile", "ownerProfileId"),
-
+      ownerProfile: a.belongsTo(
+        "ExperienceOwnerProfile",
+        "ownerProfileId",
+      ),
       bookingId: a.id(),
-
       startDateTime: a.datetime().required(),
       endDateTime: a.datetime(),
-
       status: a.enum([
         "PENDING",
         "ACCEPTED",
@@ -123,11 +125,8 @@ const schema = a.schema({
         "CANCELLED",
         "BLOCKED",
       ]),
-
       title: a.string(),
       notes: a.string(),
-
-      // Amplify owner authorization field.
       owner: a.string(),
     })
     .secondaryIndexes((index) => [
@@ -145,10 +144,8 @@ export type Schema = ClientSchema<typeof schema>;
 
 export const data = defineData({
   schema,
-
   authorizationModes: {
     defaultAuthorizationMode: "userPool",
-
     apiKeyAuthorizationMode: {
       expiresInDays: 365,
     },

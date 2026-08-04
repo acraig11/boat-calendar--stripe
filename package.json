@@ -11,6 +11,8 @@
   },
   "dependencies": {
     "@aws-amplify/ui-react": "^6.15.4",
+    "@aws-sdk/client-dynamodb": "^3.1102.0",
+    "@aws-sdk/lib-dynamodb": "^3.1102.0",
     "@emailjs/browser": "^4.4.1",
     "@fullcalendar/react": "^7.0.1",
     "aws-amplify": "^6.19.0",
@@ -20,6 +22,7 @@
     "react-dom": "^19.2.7",
     "react-icons": "^5.7.0",
     "react-router-dom": "^7.18.1",
+    "stripe": "^22.4.0",
     "temporal-polyfill": "^1.0.1"
   },
   "devDependencies": {

@@ -2,8 +2,9 @@ import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { Authenticator } from "@aws-amplify/ui-react";
 import "@aws-amplify/ui-react/styles.css";
 import { getUrl, remove, uploadData } from "aws-amplify/storage";
-import { getCurrentUser } from "aws-amplify/auth";
+import { fetchAuthSession, getCurrentUser } from "aws-amplify/auth";
 import { client } from "../lib/amplifyClient";
+import outputs from "../../amplify_outputs.json";
 import "./OwnerDashboard.css";
 import "./OwnerBookingRequests.css";
 import { sendBookingDecisionEmail } from "../utils/email";
@@ -157,6 +158,10 @@ function DashboardContent({
   const [updatingBookingId, setUpdatingBookingId] = useState<string | null>(
     null,
   );
+  const [isTestingStripeApi, setIsTestingStripeApi] = useState(false);
+  const [generatingPaymentBookingId, setGeneratingPaymentBookingId] =
+    useState<string | null>(null);
+  const [checkoutUrls, setCheckoutUrls] = useState<Record<string, string>>({});
 
   const [profileName, setProfileName] = useState("");
   const [profilePhone, setProfilePhone] = useState("");
@@ -619,7 +624,7 @@ function DashboardContent({
     }
   }
 
-  const pendingBookingRequests: PendingBookingRequest[] = bookings
+  const openBookingRequests: PendingBookingRequest[] = bookings
     .map((booking) => ({
       booking,
       calendarEvent:
@@ -627,10 +632,14 @@ function DashboardContent({
           (calendarEvent) => calendarEvent.bookingId === booking.id,
         ) ?? null,
     }))
-    .filter(
-      ({ calendarEvent }) =>
-        !calendarEvent || calendarEvent.status === "PENDING",
-    )
+    .filter(({ booking, calendarEvent }) => {
+      return (
+        booking.paymentStatus === "AWAITING_APPROVAL" ||
+        booking.paymentStatus === "AWAITING_PAYMENT" ||
+        (!booking.paymentStatus &&
+          (!calendarEvent || calendarEvent.status === "PENDING"))
+      );
+    })
     .sort(
       (first, second) =>
         new Date(first.booking.appointmentDateTime).getTime() -
@@ -671,6 +680,8 @@ function DashboardContent({
       const bookingResult = await client.models.Booking.update({
         id: request.booking.id,
         status,
+        paymentStatus:
+          status === "ACCEPTED" ? "AWAITING_PAYMENT" : "REJECTED",
       });
 
       if (bookingResult.errors?.length) {
@@ -700,6 +711,20 @@ function DashboardContent({
       );
 
       try {
+        let paymentUrl: string | undefined;
+
+        if (status === "ACCEPTED") {
+          setMessage("Creating the secure Stripe payment link...");
+
+          const checkout = await createCheckoutSession(request.booking.id);
+          paymentUrl = checkout.checkoutUrl;
+
+          setCheckoutUrls((currentUrls) => ({
+            ...currentUrls,
+            [request.booking.id]: checkout.checkoutUrl,
+          }));
+        }
+
         await sendBookingDecisionEmail({
           customerName: request.booking.customerName,
           customerEmail: request.booking.customerEmail,
@@ -710,23 +735,24 @@ function DashboardContent({
           ownerName: profile?.name,
           ownerEmail: profile?.email,
           ownerPhone: profile?.phone,
+          paymentUrl,
         });
 
         setMessage(
-          `${request.booking.customerName}'s booking was ${
-            status === "ACCEPTED" ? "approved" : "rejected"
-          }, and the customer was emailed.`,
+          status === "ACCEPTED"
+            ? `${request.booking.customerName}'s booking was approved. The customer was emailed a secure payment link and informed that the booking will be confirmed once payment is received.`
+            : `${request.booking.customerName}'s booking was rejected, and the customer was emailed.`,
         );
-      } catch (emailError) {
+      } catch (notificationError) {
         console.error(
-          "The booking was updated, but the notification email failed:",
-          emailError,
+          "The booking was updated, but the payment link or notification email failed:",
+          notificationError,
         );
 
         setMessage(
-          `${request.booking.customerName}'s booking was ${
-            status === "ACCEPTED" ? "approved" : "rejected"
-          }, but the notification email could not be sent.`,
+          status === "ACCEPTED"
+            ? `${request.booking.customerName}'s booking was approved and is awaiting payment, but the payment link or approval email could not be completed. Use Generate Payment Link to retry.`
+            : `${request.booking.customerName}'s booking was rejected, but the notification email could not be sent.`,
         );
       }
     } catch (error) {
@@ -739,6 +765,196 @@ function DashboardContent({
       );
     } finally {
       setUpdatingBookingId(null);
+    }
+  }
+
+  async function testStripeApi() {
+    try {
+      setIsTestingStripeApi(true);
+      setMessage("");
+
+      const session = await fetchAuthSession();
+      const idToken = session.tokens?.idToken?.toString();
+
+      if (!idToken) {
+        throw new Error(
+          "The signed-in owner's authentication token could not be found.",
+        );
+      }
+
+      const endpoint = outputs.custom?.API?.stripeRestApi?.endpoint;
+
+      if (!endpoint) {
+        throw new Error(
+          "The Stripe REST API endpoint is missing from amplify_outputs.json.",
+        );
+      }
+
+      const response = await fetch(
+        `${endpoint.replace(/\/$/, "")}/stripe-test`,
+        {
+          method: "GET",
+          headers: {
+            Authorization: idToken,
+            Accept: "application/json",
+          },
+        },
+      );
+
+      const responseText = await response.text();
+
+      let responseData: {
+        success?: boolean;
+        message?: string;
+        userEmail?: string;
+      } = {};
+
+      if (responseText) {
+        try {
+          responseData = JSON.parse(responseText) as typeof responseData;
+        } catch {
+          throw new Error(
+            `The Stripe API returned an unreadable response: ${responseText}`,
+          );
+        }
+      }
+
+      if (!response.ok) {
+        throw new Error(
+          responseData.message ||
+            `The Stripe API request failed with status ${response.status}.`,
+        );
+      }
+
+      setMessage(
+        responseData.message ||
+          "The authenticated Stripe REST API is working.",
+      );
+    } catch (error: unknown) {
+      console.error("Could not reach the Stripe REST API:", error);
+
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Could not reach the Stripe REST API.",
+      );
+    } finally {
+      setIsTestingStripeApi(false);
+    }
+  }
+
+  async function createCheckoutSession(
+    bookingId: string,
+  ): Promise<{ checkoutUrl: string; reused?: boolean }> {
+    const session = await fetchAuthSession();
+    const idToken = session.tokens?.idToken?.toString();
+
+    if (!idToken) {
+      throw new Error(
+        "The signed-in owner's authentication token could not be found.",
+      );
+    }
+
+    const endpoint = outputs.custom?.API?.stripeRestApi?.endpoint;
+
+    if (!endpoint) {
+      throw new Error(
+        "The Stripe REST API endpoint is missing from amplify_outputs.json.",
+      );
+    }
+
+    const response = await fetch(
+      `${endpoint.replace(/\/$/, "")}/create-checkout-session`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: idToken,
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({ bookingId }),
+      },
+    );
+
+    const responseText = await response.text();
+
+    let responseData: {
+      message?: string;
+      checkoutUrl?: string;
+      reused?: boolean;
+    } = {};
+
+    if (responseText) {
+      try {
+        responseData = JSON.parse(responseText) as typeof responseData;
+      } catch {
+        throw new Error(
+          `Stripe returned an unreadable response: ${responseText}`,
+        );
+      }
+    }
+
+    if (!response.ok) {
+      throw new Error(
+        responseData.message ||
+          `The Checkout request failed with status ${response.status}.`,
+      );
+    }
+
+    if (!responseData.checkoutUrl) {
+      throw new Error("Stripe did not return a Checkout payment link.");
+    }
+
+    return {
+      checkoutUrl: responseData.checkoutUrl,
+      reused: responseData.reused,
+    };
+  }
+
+  async function generatePaymentLink(bookingId: string) {
+    try {
+      setGeneratingPaymentBookingId(bookingId);
+      setMessage("");
+
+      const checkout = await createCheckoutSession(bookingId);
+
+      setCheckoutUrls((currentUrls) => ({
+        ...currentUrls,
+        [bookingId]: checkout.checkoutUrl,
+      }));
+
+      setMessage(
+        checkout.reused
+          ? "The existing Stripe payment link is still active."
+          : "Stripe payment link created successfully.",
+      );
+    } catch (error: unknown) {
+      console.error("Could not generate the Stripe payment link:", error);
+
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Could not generate the Stripe payment link.",
+      );
+    } finally {
+      setGeneratingPaymentBookingId(null);
+    }
+  }
+
+  async function copyPaymentLink(bookingId: string) {
+    const checkoutUrl = checkoutUrls[bookingId];
+
+    if (!checkoutUrl) {
+      setMessage("No Stripe payment link is available to copy.");
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(checkoutUrl);
+      setMessage("Stripe payment link copied to the clipboard.");
+    } catch (error: unknown) {
+      console.error("Could not copy the Stripe payment link:", error);
+      setMessage("The Stripe payment link could not be copied.");
     }
   }
 
@@ -755,9 +971,22 @@ function DashboardContent({
           <small>Dashboard version: Pending List 2026-07-31</small>
         </div>
 
-        <button type="button" onClick={signOut}>
-          Sign Out
-        </button>
+        <div className="owner-dashboard-header-actions">
+          <button
+            type="button"
+            className="secondary-button"
+            disabled={isTestingStripeApi}
+            onClick={() => {
+              void testStripeApi();
+            }}
+          >
+            {isTestingStripeApi ? "Testing..." : "Test Stripe API"}
+          </button>
+
+          <button type="button" onClick={signOut}>
+            Sign Out
+          </button>
+        </div>
       </header>
 
       {message && <p className="dashboard-message">{message}</p>}
@@ -825,11 +1054,11 @@ function DashboardContent({
           <section className="dashboard-section">
             <div className="booking-requests-header">
               <div>
-                <h2>Pending Booking Requests</h2>
+                <h2>Open Booking Requests</h2>
                 <p>
-                  Review each request and approve it when ready. Found{" "}
-                  {pendingBookingRequests.length} pending request
-                  {pendingBookingRequests.length === 1 ? "" : "s"}.
+                  Review requests awaiting approval and approved bookings
+                  awaiting customer payment. Found {openBookingRequests.length}{" "}
+                  open booking{openBookingRequests.length === 1 ? "" : "s"}.
                 </p>
               </div>
 
@@ -844,12 +1073,16 @@ function DashboardContent({
               </button>
             </div>
 
-            {pendingBookingRequests.length === 0 ? (
-              <p>There are no pending booking requests.</p>
+            {openBookingRequests.length === 0 ? (
+              <p>There are no open booking requests.</p>
             ) : (
               <div className="booking-request-list">
-                {pendingBookingRequests.map(
-                  ({ booking, calendarEvent }) => (
+                {openBookingRequests.map(
+                  ({ booking, calendarEvent }) => {
+                    const isAwaitingPayment =
+                      booking.paymentStatus === "AWAITING_PAYMENT";
+
+                    return (
                     <article
                       className="booking-request-card"
                       key={booking.id}
@@ -867,7 +1100,11 @@ function DashboardContent({
                           </p>
                         </div>
 
-                        <span className="pending-booking-badge">Pending</span>
+                        <span className="pending-booking-badge">
+                          {isAwaitingPayment
+                            ? "Approved — Awaiting Payment"
+                            : "Pending Owner Approval"}
+                        </span>
                       </div>
 
                       <dl className="booking-request-details">
@@ -903,46 +1140,106 @@ function DashboardContent({
                       )}
 
                       <div className="booking-request-actions">
-                        <button
-                          type="button"
-                          className="approve-booking-button"
-                          disabled={
-                            !calendarEvent ||
-                            updatingBookingId === booking.id
-                          }
-                          onClick={() => {
-                            void updateBookingStatus(
-                              { booking, calendarEvent },
-                              "ACCEPTED",
-                            );
-                          }}
-                        >
-                          {updatingBookingId === booking.id
-                            ? "Updating..."
-                            : "Approve Booking"}
-                        </button>
+                        {!isAwaitingPayment ? (
+                          <>
+                            <button
+                              type="button"
+                              className="approve-booking-button"
+                              disabled={
+                                !calendarEvent ||
+                                updatingBookingId === booking.id
+                              }
+                              onClick={() => {
+                                void updateBookingStatus(
+                                  { booking, calendarEvent },
+                                  "ACCEPTED",
+                                );
+                              }}
+                            >
+                              {updatingBookingId === booking.id
+                                ? "Updating..."
+                                : "Approve Booking"}
+                            </button>
 
-                        <button
-                          type="button"
-                          className="reject-booking-button"
-                          disabled={
-                            !calendarEvent ||
-                            updatingBookingId === booking.id
-                          }
-                          onClick={() => {
-                            void updateBookingStatus(
-                              { booking, calendarEvent },
-                              "REJECTED",
-                            );
-                          }}
-                        >
-                          {updatingBookingId === booking.id
-                            ? "Updating..."
-                            : "Reject Booking"}
-                        </button>
+                            <button
+                              type="button"
+                              className="reject-booking-button"
+                              disabled={
+                                !calendarEvent ||
+                                updatingBookingId === booking.id
+                              }
+                              onClick={() => {
+                                void updateBookingStatus(
+                                  { booking, calendarEvent },
+                                  "REJECTED",
+                                );
+                              }}
+                            >
+                              {updatingBookingId === booking.id
+                                ? "Updating..."
+                                : "Reject Booking"}
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            type="button"
+                            className="approve-booking-button"
+                            disabled={
+                              generatingPaymentBookingId === booking.id ||
+                              booking.amountInCents == null ||
+                              booking.amountInCents <= 0
+                            }
+                            onClick={() => {
+                              void generatePaymentLink(booking.id);
+                            }}
+                          >
+                            {generatingPaymentBookingId === booking.id
+                              ? "Generating Payment Link..."
+                              : checkoutUrls[booking.id]
+                                ? "Refresh Payment Link"
+                                : booking.stripeCheckoutSessionId
+                                  ? "Retrieve Payment Link"
+                                  : "Generate Payment Link"}
+                          </button>
+                        )}
                       </div>
+
+                      {isAwaitingPayment &&
+                        booking.amountInCents != null &&
+                        booking.amountInCents <= 0 && (
+                          <p className="booking-request-warning">
+                            This booking does not have a valid payment amount.
+                          </p>
+                        )}
+
+                      {isAwaitingPayment && checkoutUrls[booking.id] && (
+                        <div className="booking-payment-link">
+                          <p>
+                            <strong>Stripe payment link ready</strong>
+                          </p>
+
+                          <a
+                            href={checkoutUrls[booking.id]}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            Open Stripe Checkout
+                          </a>
+
+                          <button
+                            type="button"
+                            className="secondary-button"
+                            onClick={() => {
+                              void copyPaymentLink(booking.id);
+                            }}
+                          >
+                            Copy Payment Link
+                          </button>
+                        </div>
+                      )}
                     </article>
-                  ),
+                    );
+                  },
                 )}
               </div>
             )}

@@ -5,10 +5,7 @@ import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 import "./AppointmentCalendar.css";
 
-import {
-  sendBookingEmailWithAppointment,
-  sendBookingPendingEmail,
-} from "../utils/email";
+import { sendBookingPendingEmail } from "../utils/email";
 import { getUrl } from "aws-amplify/storage";
 import { client } from "../lib/amplifyClient";
 
@@ -376,80 +373,17 @@ function AppointmentCalendar() {
       return;
     }
 
-    const nameParts = contact.name.trim().split(/\s+/);
-
-    const profile = {
-      firstName: nameParts[0] ?? "",
-      lastName: nameParts.slice(1).join(" "),
-      phoneNumber: contact.phone,
-      ownerEmail: contact.email,
-    };
-
     try {
       setIsSending(true);
-
-      console.log(
-        "Selected experience before owner lookup:",
-        selectedExperience,
-      );
-      console.log("Owner profile ID:", selectedExperience.ownerProfileId);
 
       if (!selectedExperience.ownerProfileId) {
         throw new Error("This experience does not have an owner profile ID.");
       }
 
-      const ownerProfileResult = await client.models.ExperienceOwnerProfile.get(
-        {
-          id: selectedExperience.ownerProfileId,
-        },
-        {
-          authMode: "apiKey",
-        },
-      );
-
-      console.log("Owner profile get result:", ownerProfileResult);
-
-      if (ownerProfileResult.errors?.length) {
-        console.warn("Owner profile get errors:", ownerProfileResult.errors);
-      }
-
-      let ownerProfile = ownerProfileResult.data;
-
-      // Fallback: list the readable owner profiles and match the experiences's
-      // ownerProfileId. This also helps when get() returns no readable data.
-      if (!ownerProfile?.email) {
-        const ownerProfilesResult =
-          await client.models.ExperienceOwnerProfile.list({
-            authMode: "apiKey",
-          });
-
-        console.log("Owner profile list result:", ownerProfilesResult);
-
-        if (ownerProfilesResult.errors?.length) {
-          console.warn(
-            "Owner profile list errors:",
-            ownerProfilesResult.errors,
-          );
-        }
-
-        ownerProfile =
-          ownerProfilesResult.data.find(
-            (candidate) => candidate.id === selectedExperience.ownerProfileId,
-          ) ?? ownerProfile;
-      }
-
-      const experienceOwnerEmail = ownerProfile?.email?.trim();
-
-      if (!experienceOwnerEmail) {
-        console.error("Could not resolve experience owner email.", {
-          selectedExperience,
-          ownerProfile,
-        });
-
-        throw new Error(
-          `No readable owner email was found for owner profile ${selectedExperience.ownerProfileId}.`,
-        );
-      }
+      const amountInCents =
+        selectedExperience.estimatedPrice != null
+          ? Math.round(selectedExperience.estimatedPrice * 100)
+          : undefined;
 
       const bookingInput = {
         customerName: contact.name.trim(),
@@ -458,7 +392,12 @@ function AppointmentCalendar() {
         appointmentDateTime: appointmentDateTime.toISOString(),
         experienceId: selectedExperience.id,
         experienceName: selectedExperience.name,
+        location: selectedExperience.location,
         ownerProfileId: selectedExperience.ownerProfileId,
+
+        // Optional payment fields. These do not change the current booking flow.
+        amountInCents,
+        paymentStatus: "AWAITING_APPROVAL",
       };
 
       console.log("BOOKING INPUT:", bookingInput);
@@ -513,14 +452,6 @@ function AppointmentCalendar() {
       }
 
       const calendarEvent = calendarResult.data;
-
-      await sendBookingEmailWithAppointment(
-        appointmentDateTime,
-        profile,
-        selectedExperience.name,
-        selectedExperience.location,
-        experienceOwnerEmail,
-      );
 
       try {
         await sendBookingPendingEmail({

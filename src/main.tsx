@@ -9,7 +9,18 @@ import "./index.css";
 import App from "./App.tsx";
 
 Amplify.configure(outputs);
+const existingConfig = Amplify.getConfig();
 
+Amplify.configure({
+  ...existingConfig,
+  API: {
+    ...existingConfig.API,
+    REST: {
+      ...existingConfig.API?.REST,
+      ...outputs.custom.API,
+    },
+  },
+});
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <BrowserRouter>

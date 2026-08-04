@@ -109,6 +109,7 @@ export async function sendBookingDecisionEmail({
   ownerName,
   ownerEmail,
   ownerPhone,
+  paymentUrl,
 }: {
   customerName: string;
   customerEmail: string;
@@ -119,6 +120,7 @@ export async function sendBookingDecisionEmail({
   ownerName?: string | null;
   ownerEmail?: string | null;
   ownerPhone?: string | null;
+  paymentUrl?: string | null;
 }) {
   if (!EMAILJS_SERVICE_ID || !EMAILJS_TEMPLATE_ID || !EMAILJS_PUBLIC_KEY) {
     throw new Error("EmailJS configuration is missing. Check your .env file.");
@@ -162,6 +164,20 @@ export async function sendBookingDecisionEmail({
   ];
 
   if (approved) {
+    messageLines.push(
+      "",
+      "Your booking request has been approved, and we are awaiting payment.",
+      "Your booking will be confirmed once payment is received.",
+    );
+
+    if (paymentUrl?.trim()) {
+      messageLines.push(
+        "",
+        "Complete your secure payment here:",
+        paymentUrl.trim(),
+      );
+    }
+
     messageLines.push("", "Experience Owner Contact:");
 
     if (ownerName?.trim()) {
@@ -176,7 +192,10 @@ export async function sendBookingDecisionEmail({
       messageLines.push(`Phone: ${ownerPhone.trim()}`);
     }
 
-    messageLines.push("", "We look forward to seeing you.");
+    messageLines.push(
+      "",
+      "We look forward to seeing you once your payment is complete.",
+    );
   } else {
     messageLines.push(
       "",
@@ -210,6 +229,7 @@ export async function sendBookingDecisionEmail({
       owner_name: ownerName?.trim() ?? "",
       owner_email: ownerEmail?.trim() ?? "",
       owner_phone: ownerPhone?.trim() ?? "",
+      payment_url: paymentUrl?.trim() ?? "",
     },
     {
       publicKey: EMAILJS_PUBLIC_KEY,
