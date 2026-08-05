@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import DatePicker from "react-datepicker";
 import { Authenticator } from "@aws-amplify/ui-react";
 import "@aws-amplify/ui-react/styles.css";
@@ -52,14 +52,17 @@ type BookingMessageRecord = {
   senderRole?: "CUSTOMER" | "OWNER" | "SYSTEM" | null;
   message: string;
   messageType?:
-    | "CHAT"
-    | "BOOKING_RECEIVED"
-    | "BOOKING_APPROVED"
-    | "BOOKING_REJECTED"
-    | "AWAITING_PAYMENT"
-    | "PAYMENT_RECEIVED"
-    | "BOOKING_CONFIRMED"
-    | null;
+  | "CHAT"
+  | "BOOKING_RECEIVED"
+  | "BOOKING_APPROVED"
+  | "BOOKING_REJECTED"
+  | "AWAITING_PAYMENT"
+  | "PAYMENT_RECEIVED"
+  | "BOOKING_CONFIRMED"
+  | "BOOKING_CANCELLED"
+  | "BOOKING_DATE_CHANGED"
+  | "PAYMENT_REFUNDED"
+  | null;
   createdAt?: string | null;
 };
 
@@ -131,6 +134,8 @@ function ExperienceImage({
 
 function AppointmentCalendarContent() {
   const [searchParams] = useSearchParams();
+
+  const navigate = useNavigate();
 
   const [experienceRecords, setExperienceRecords] = useState<Experience[]>([]);
   const [isLoadingExperiences, setIsLoadingExperiences] = useState(true);
@@ -644,23 +649,12 @@ function AppointmentCalendarContent() {
           status: calendarEvent.status,
         },
       ]);
-
-      const completedExperienceName = selectedExperience.name;
-
       setSelectedExperience(null);
       setSelectedDate(null);
       setSelectedTime("09:00");
-  
-      if (bookingMessageCreated) {
-        await openBookingMessages(
-          booking.id,
-          completedExperienceName,
-        );
-      } else {
-        alert(
-          "Your booking request was created, but its status message could not be added. The booking is still pending owner approval.",
-        );
-      }
+
+      navigate("/user");
+
     } catch (error: unknown) {
       console.error("Could not complete appointment request:", error);
 

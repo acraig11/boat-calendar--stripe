@@ -1007,13 +1007,11 @@ function DashboardContent({
         );
       }
 
-      const conversationMessages = result.data
-        .filter((bookingMessage) => bookingMessage.messageType === "CHAT")
-        .sort(
-          (first, second) =>
-            new Date(first.createdAt).getTime() -
-            new Date(second.createdAt).getTime(),
-        );
+      const conversationMessages = [...result.data].sort(
+        (first, second) =>
+          new Date(first.createdAt).getTime() -
+          new Date(second.createdAt).getTime(),
+      );
 
       setBookingMessages((current) => ({
         ...current,
@@ -1408,7 +1406,7 @@ function DashboardContent({
               minute: "2-digit",
             },
           )}.`,
-          messageType: "CHAT",
+          messageType: "BOOKING_DATE_CHANGED",
           readByOwnerAt: new Date().toISOString(),
         });
 
@@ -1437,11 +1435,21 @@ function DashboardContent({
       );
 
       if (messageResult.data) {
+        const createdDateChangeMessage = messageResult.data;
+
         setBookingMessages((current) => ({
           ...current,
           [request.booking.id]: [
             ...(current[request.booking.id] ?? []),
-            messageResult.data,
+            createdDateChangeMessage,
+          ],
+        }));
+
+        setHistoryMessagesByBooking((current) => ({
+          ...current,
+          [request.booking.id]: [
+            ...(current[request.booking.id] ?? []),
+            createdDateChangeMessage,
           ],
         }));
       }
@@ -1829,7 +1837,7 @@ function DashboardContent({
               <div className="booking-requests-header-actions">
                 <button
                   type="button"
-                  className="secondary-button"
+                  className="primary-button"
                   onClick={() => {
                     setShowAllBookings(true);
                   }}
@@ -1837,15 +1845,7 @@ function DashboardContent({
                   Bookings history
                 </button>
 
-                <button
-                  type="button"
-                  className="secondary-button"
-                  onClick={() => {
-                    void loadDashboard();
-                  }}
-                >
-                  Refresh
-                </button>
+                
               </div>
             </div>
 
@@ -1927,22 +1927,8 @@ function DashboardContent({
                         </div>
                       </dl>
 
-                      <div className="booking-date-update-section">
-                        {editingDateBookingId !== booking.id ? (
-                          <button
-                            type="button"
-                            className="secondary-button"
-                            disabled={
-                              updatingDateBookingId === booking.id ||
-                              !calendarEvent
-                            }
-                            onClick={() => {
-                              beginBookingDateUpdate(booking);
-                            }}
-                          >
-                            Update Booking Date
-                          </button>
-                        ) : (
+                      {editingDateBookingId === booking.id && (
+                        <div className="booking-date-update-section">
                           <div className="booking-date-update-panel">
                             <p>
                               <strong>Update to the agreed date and time</strong>
@@ -2018,8 +2004,8 @@ function DashboardContent({
                               </button>
                             </div>
                           </div>
-                        )}
-                      </div>
+                        </div>
+                      )}
 
                       <div className="booking-conversation-section">
                         <button
@@ -2084,9 +2070,11 @@ function DashboardContent({
                                     <article
                                       id={`booking-message-${bookingMessage.id}`}
                                       className={`booking-conversation-message ${
-                                        bookingMessage.senderRole === "OWNER"
-                                          ? "owner-message"
-                                          : "customer-message"
+                                        bookingMessage.messageType !== "CHAT"
+                                          ? "system-message"
+                                          : bookingMessage.senderRole === "OWNER"
+                                            ? "owner-message"
+                                            : "customer-message"
                                       } ${
                                         highlightedMessageId ===
                                         bookingMessage.id
@@ -2115,6 +2103,15 @@ function DashboardContent({
                                           })}
                                         </span>
                                       </div>
+
+                                      {bookingMessage.messageType &&
+                                        bookingMessage.messageType !== "CHAT" && (
+                                          <span className="booking-conversation-message-type">
+                                            {bookingMessage.messageType
+                                              .replaceAll("_", " ")
+                                              .toLowerCase()}
+                                          </span>
+                                        )}
 
                                       <p>{bookingMessage.message}</p>
                                     </article>
@@ -2177,6 +2174,23 @@ function DashboardContent({
                       <div className="booking-request-actions">
                         {isPendingApproval ? (
                           <>
+                            <button
+                              type="button"
+                              className="update-booking-date-button"
+                              disabled={
+                                !calendarEvent ||
+                                updatingDateBookingId === booking.id ||
+                                updatingBookingId === booking.id
+                              }
+                              onClick={() => {
+                                beginBookingDateUpdate(booking);
+                              }}
+                            >
+                              {editingDateBookingId === booking.id
+                                ? "Editing Date"
+                                : "Update Booking Date"}
+                            </button>
+
                             <button
                               type="button"
                               className="approve-booking-button"
@@ -2784,68 +2798,165 @@ function DashboardContent({
                       )}
                     </dl>
 
-                    <div className="booking-history-messages">
-                      <h4>All Messages</h4>
-
-                      {(historyMessagesByBooking[booking.id] ?? []).length ===
-                      0 ? (
-                        <p className="booking-history-no-messages">
-                          No messages are associated with this booking.
-                        </p>
-                      ) : (
-                        <div className="booking-history-message-list">
-                          {(historyMessagesByBooking[booking.id] ?? []).map(
-                            (bookingMessage) => (
-                              <article
-                                className={`booking-history-message ${
-                                  bookingMessage.senderRole === "OWNER"
-                                    ? "owner-message"
-                                    : bookingMessage.senderRole ===
-                                        "CUSTOMER"
-                                      ? "customer-message"
-                                      : "system-message"
-                                }`}
-                                key={bookingMessage.id}
-                              >
-                                <div className="booking-history-message-meta">
-                                  <strong>
-                                    {bookingMessage.senderName ||
-                                      (bookingMessage.senderRole === "OWNER"
-                                        ? "Experience Owner"
-                                        : bookingMessage.senderRole ===
-                                            "CUSTOMER"
-                                          ? "Customer"
-                                          : "Coast Life")}
-                                  </strong>
-
-                                  <span>
-                                    {new Date(
-                                      bookingMessage.createdAt,
-                                    ).toLocaleString("en-US", {
-                                      month: "short",
-                                      day: "numeric",
-                                      year: "numeric",
-                                      hour: "numeric",
-                                      minute: "2-digit",
-                                    })}
-                                  </span>
-                                </div>
-
-                                {bookingMessage.messageType && (
-                                  <span className="booking-history-message-type">
-                                    {bookingMessage.messageType
-                                      .replaceAll("_", " ")
-                                      .toLowerCase()}
-                                  </span>
-                                )}
-
-                                <p>{bookingMessage.message}</p>
-                              </article>
-                            ),
+                    <div className="booking-history-conversation-section">
+                      <button
+                        type="button"
+                        className={`booking-conversation-toggle ${
+                          getUnreadCustomerMessageCount(booking.id) > 0
+                            ? "has-new-messages"
+                            : doesBookingNeedOwnerResponse(booking.id)
+                              ? "needs-response"
+                              : ""
+                        }`}
+                        aria-expanded={
+                          expandedMessagesBookingId === booking.id
+                        }
+                        onClick={() => {
+                          void toggleBookingMessages(booking.id);
+                        }}
+                      >
+                        <span className="booking-conversation-toggle-label">
+                          {getUnreadCustomerMessageCount(booking.id) > 0 ? (
+                            <>
+                              New messages
+                              <span className="booking-message-count">
+                                {getUnreadCustomerMessageCount(booking.id)}
+                              </span>
+                            </>
+                          ) : doesBookingNeedOwnerResponse(booking.id) ? (
+                            "Response needed"
+                          ) : (
+                            "Messages"
                           )}
+                        </span>
+
+                        <span aria-hidden="true">
+                          {expandedMessagesBookingId === booking.id
+                            ? "▲"
+                            : "▼"}
+                        </span>
+                      </button>
+
+                      {expandedMessagesBookingId === booking.id && (
+                        <div className="booking-conversation-panel">
+                          <p className="booking-conversation-title">
+                            Conversation with {booking.customerName}
+                          </p>
+
+                          <p className="booking-conversation-purpose">
+                            Messaging remains available for this booking
+                            regardless of status.
+                          </p>
+
+                          {loadingMessagesBookingId === booking.id ? (
+                            <p>Loading messages...</p>
+                          ) : (bookingMessages[booking.id] ?? []).length ===
+                            0 ? (
+                            <p>No conversation messages yet.</p>
+                          ) : (
+                            <div className="booking-conversation-list">
+                              {(bookingMessages[booking.id] ?? []).map(
+                                (bookingMessage) => (
+                                  <article
+                                    id={`booking-message-${bookingMessage.id}`}
+                                    className={`booking-conversation-message ${
+                                      bookingMessage.messageType !== "CHAT"
+                                        ? "system-message"
+                                        : bookingMessage.senderRole === "OWNER"
+                                          ? "owner-message"
+                                          : "customer-message"
+                                    } ${
+                                      highlightedMessageId ===
+                                      bookingMessage.id
+                                        ? "highlighted-unread-message"
+                                        : ""
+                                    }`}
+                                    key={bookingMessage.id}
+                                  >
+                                    <div className="booking-conversation-meta">
+                                      <strong>
+                                        {bookingMessage.senderName ||
+                                          (bookingMessage.senderRole === "OWNER"
+                                            ? "Experience Owner"
+                                            : bookingMessage.senderRole ===
+                                                "CUSTOMER"
+                                              ? "Customer"
+                                              : "Coast Life")}
+                                      </strong>
+
+                                      <span>
+                                        {new Date(
+                                          bookingMessage.createdAt,
+                                        ).toLocaleString("en-US", {
+                                          month: "short",
+                                          day: "numeric",
+                                          hour: "numeric",
+                                          minute: "2-digit",
+                                        })}
+                                      </span>
+                                    </div>
+
+                                    {bookingMessage.messageType &&
+                                      bookingMessage.messageType !== "CHAT" && (
+                                        <span className="booking-conversation-message-type">
+                                          {bookingMessage.messageType
+                                            .replaceAll("_", " ")
+                                            .toLowerCase()}
+                                        </span>
+                                      )}
+
+                                    <p>{bookingMessage.message}</p>
+                                  </article>
+                                ),
+                              )}
+                            </div>
+                          )}
+
+                          {messageErrors[booking.id] && (
+                            <p className="booking-conversation-error">
+                              {messageErrors[booking.id]}
+                            </p>
+                          )}
+
+                          <label className="booking-conversation-composer-label">
+                            Send a message to the customer
+                            <textarea
+                              rows={3}
+                              value={messageDrafts[booking.id] ?? ""}
+                              onChange={(event) => {
+                                const value = event.target.value;
+
+                                setMessageDrafts((current) => ({
+                                  ...current,
+                                  [booking.id]: value,
+                                }));
+                              }}
+                              placeholder="Send a message about this booking."
+                              disabled={
+                                sendingMessageBookingId === booking.id
+                              }
+                            />
+                          </label>
+
+                          <button
+                            type="button"
+                            className="primary-button"
+                            disabled={
+                              sendingMessageBookingId === booking.id
+                            }
+                            onClick={() => {
+                              void sendOwnerMessage(booking);
+                            }}
+                          >
+                            {sendingMessageBookingId === booking.id
+                              ? "Sending..."
+                              : "Send Message"}
+                          </button>
                         </div>
                       )}
                     </div>
+
+                    
                   </article>
                 ))}
               </div>

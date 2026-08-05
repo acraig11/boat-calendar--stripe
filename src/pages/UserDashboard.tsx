@@ -48,6 +48,11 @@ function UserDashboard() {
   const [showBookings, setShowBookings] = useState(false);
   const [startingPaymentBookingId, setStartingPaymentBookingId] =
     useState<string | null>(null);
+  const [cancellingBookingId, setCancellingBookingId] =
+    useState<string | null>(null);
+  const [bookingToCancel, setBookingToCancel] =
+    useState<Booking | null>(null);
+  const [cancellationReason, setCancellationReason] = useState("");
   const [expandedMessagesBookingId, setExpandedMessagesBookingId] =
     useState<string | null>(null);
   const [pendingUnreadBookingId, setPendingUnreadBookingId] =
@@ -514,18 +519,17 @@ function UserDashboard() {
         );
       }
 
-      // Routine system status messages are intentionally hidden because
-      // the booking card already displays booking and payment status.
-      const conversationMessages = result.data
-        .filter((bookingMessage) => bookingMessage.messageType === "CHAT")
-        .sort(
-          (first, second) =>
-            new Date(first.createdAt).getTime() -
-            new Date(second.createdAt).getTime(),
-        );
+      // Show the complete booking timeline, including status changes.
+      const conversationMessages = [...result.data].sort(
+        (first, second) =>
+          new Date(first.createdAt).getTime() -
+          new Date(second.createdAt).getTime(),
+      );
 
+      // Only direct owner chat should affect the customer's unread badge.
       const unreadOwnerMessages = conversationMessages.filter(
         (bookingMessage) =>
+          bookingMessage.messageType === "CHAT" &&
           bookingMessage.senderRole === "OWNER" &&
           !bookingMessage.readByCustomerAt,
       );
@@ -553,6 +557,7 @@ function UserDashboard() {
 
         for (const bookingMessage of conversationMessages) {
           if (
+            bookingMessage.messageType === "CHAT" &&
             bookingMessage.senderRole === "OWNER" &&
             !bookingMessage.readByCustomerAt
           ) {
@@ -706,6 +711,181 @@ function UserDashboard() {
       }));
     } finally {
       setSendingMessageBookingId(null);
+    }
+  }
+
+  function openCancellationDialog(booking: Booking) {
+    const canCancel =
+      booking.paymentStatus !== "PAID" &&
+      booking.status !== "REJECTED" &&
+      booking.status !== "CANCELLED";
+
+    if (!canCancel) {
+      setMessage("Only unconfirmed bookings can be cancelled.");
+      return;
+    }
+
+    setCancellationReason("");
+    setBookingToCancel(booking);
+    setMessage("");
+  }
+
+  function closeCancellationDialog() {
+    if (cancellingBookingId) {
+      return;
+    }
+
+    setBookingToCancel(null);
+    setCancellationReason("");
+  }
+
+  async function cancelUnconfirmedBooking(booking: Booking) {
+    try {
+      setCancellingBookingId(booking.id);
+      setMessage("");
+
+      const currentUser = await getCurrentUser();
+
+      if (
+        !booking.customerUserId ||
+        booking.customerUserId !== currentUser.userId
+      ) {
+        throw new Error(
+          "This booking does not belong to the signed-in customer.",
+        );
+      }
+
+      const calendarResult =
+        await client.models.ExperienceCalendarEvent.list({
+          filter: {
+            bookingId: {
+              eq: booking.id,
+            },
+          },
+        });
+
+      if (calendarResult.errors?.length) {
+        throw new Error(
+          calendarResult.errors.map((error) => error.message).join(", "),
+        );
+      }
+
+      const calendarEvent =
+        calendarResult.data.find(
+          (event) => event.bookingId === booking.id,
+        ) ?? null;
+
+      const bookingResult = await client.models.Booking.update({
+        id: booking.id,
+        status: "CANCELLED",
+        paymentStatus: "CANCELLED",
+      });
+
+      if (bookingResult.errors?.length) {
+        throw new Error(
+          bookingResult.errors.map((error) => error.message).join(", "),
+        );
+      }
+
+      if (!bookingResult.data) {
+        throw new Error("The booking could not be cancelled.");
+      }
+
+      if (calendarEvent) {
+        const eventResult =
+          await client.models.ExperienceCalendarEvent.update({
+            id: calendarEvent.id,
+            status: "CANCELLED",
+          });
+
+        if (eventResult.errors?.length) {
+          throw new Error(
+            eventResult.errors.map((error) => error.message).join(", "),
+          );
+        }
+      }
+
+      const ownerProfileResult =
+        await client.models.ExperienceOwnerProfile.get({
+          id: booking.ownerProfileId,
+        });
+
+      if (ownerProfileResult.errors?.length) {
+        throw new Error(
+          ownerProfileResult.errors
+            .map((error) => error.message)
+            .join(", "),
+        );
+      }
+
+      const ownerUserId = ownerProfileResult.data?.userId?.trim();
+
+      if (!ownerUserId) {
+        throw new Error(
+          "The experience owner's account ID could not be found.",
+        );
+      }
+
+      const trimmedReason = cancellationReason.trim();
+
+      const messageResult =
+        await client.models.BookingMessage.create({
+          bookingId: booking.id,
+          customerUserId: currentUser.userId,
+          ownerUserId,
+          ownerProfileId: booking.ownerProfileId,
+          senderUserId: currentUser.userId,
+          senderRole: "SYSTEM",
+          senderName: "Coast Life",
+          message: trimmedReason
+            ? `The customer cancelled this booking. Reason: ${trimmedReason}`
+            : "The customer cancelled this booking.",
+          messageType: "BOOKING_CANCELLED",
+          readByCustomerAt: new Date().toISOString(),
+        });
+
+      if (messageResult.errors?.length) {
+        throw new Error(
+          messageResult.errors.map((error) => error.message).join(", "),
+        );
+      }
+
+      const cancelledBooking = bookingResult.data;
+
+      setBookings((current) =>
+        current.map((item) =>
+          item.id === cancelledBooking.id ? cancelledBooking : item,
+        ),
+      );
+
+      if (messageResult.data) {
+        const createdMessage = messageResult.data;
+
+        setBookingMessages((current) => ({
+          ...current,
+          [booking.id]: [
+            ...(current[booking.id] ?? []),
+            createdMessage,
+          ],
+        }));
+      }
+
+      setBookingToCancel(null);
+      setCancellationReason("");
+
+      setMessage(
+        "The booking was cancelled and the appointment date is now available.",
+      );
+    } catch (error: unknown) {
+      console.error("Could not cancel the booking:", error);
+
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "The booking could not be cancelled.",
+      );
+    } finally {
+      setCancellingBookingId(null);
     }
   }
 
@@ -922,7 +1102,7 @@ function UserDashboard() {
           }}
           style={styles.bookingsButton}
         >
-          My Bookings ({bookings.length})
+          My Bookings & Messages ({bookings.length})
         </button>
       </div>
 
@@ -1121,7 +1301,7 @@ function UserDashboard() {
             </p>
           </div>
 
-         
+     
         </div>
 
         {unconfirmedBookings.length === 0 ? (
@@ -1174,6 +1354,19 @@ function UserDashboard() {
                           )} Securely`}
                     </button>
                   )}
+                <button
+                  type="button"
+                  style={styles.cancelBookingButton}
+                  disabled={cancellingBookingId === booking.id}
+                  onClick={() => {
+                    openCancellationDialog(booking);
+                  }}
+                >
+                  {cancellingBookingId === booking.id
+                    ? "Cancelling Booking..."
+                    : "Cancel Booking"}
+                </button>
+
               </article>
             ))}
           </div>
@@ -1229,6 +1422,74 @@ function UserDashboard() {
           </section>
         </>
       )}
+      {bookingToCancel && (
+        <div
+          style={styles.cancelModalOverlay}
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              closeCancellationDialog();
+            }
+          }}
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="cancel-booking-title"
+            style={styles.cancelModal}
+          >
+            <h2 id="cancel-booking-title" style={styles.cancelModalTitle}>
+              Cancel Booking
+            </h2>
+
+            <p style={styles.cancelModalText}>
+              Cancel the booking for{" "}
+              <strong>
+                {bookingToCancel.experienceName || "this experience"}
+              </strong>
+              ? This will free the appointment date for other customers.
+            </p>
+
+            <label style={styles.messageComposerLabel}>
+              Reason for cancellation (optional)
+              <textarea
+                rows={4}
+                value={cancellationReason}
+                onChange={(event) => {
+                  setCancellationReason(event.target.value);
+                }}
+                placeholder="Add a short explanation for the experience owner."
+                disabled={cancellingBookingId === bookingToCancel.id}
+                style={styles.messageComposer}
+              />
+            </label>
+
+            <div style={styles.cancelModalActions}>
+              <button
+                type="button"
+                onClick={closeCancellationDialog}
+                disabled={cancellingBookingId === bookingToCancel.id}
+                style={styles.keepBookingButton}
+              >
+                Keep Booking
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  void cancelUnconfirmedBooking(bookingToCancel);
+                }}
+                disabled={cancellingBookingId === bookingToCancel.id}
+                style={styles.confirmCancelButton}
+              >
+                {cancellingBookingId === bookingToCancel.id
+                  ? "Cancelling..."
+                  : "Confirm Cancellation"}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+
       {showBookings && (
         <div
           style={styles.modalOverlay}
@@ -1307,6 +1568,14 @@ function UserDashboard() {
                       value={booking.paymentStatus}
                     />
 
+                    {(booking.status === "REJECTED" ||
+                      booking.status === "CANCELLED" ||
+                      booking.paymentStatus === "PAID") && (
+                      <p style={styles.closedBookingMessagingNote}>
+                        Messaging remains available for this booking.
+                      </p>
+                    )}
+
                     <div style={styles.bookingMessagesSection}>
                       <button
                         type="button"
@@ -1346,13 +1615,14 @@ function UserDashboard() {
                           style={styles.messagesPanel}
                         >
                           <p style={styles.messagesPanelTitle}>
-                            Conversation with the experience owner
+                            Message the experience owner
                           </p>
 
                           <p style={styles.messagesPurpose}>
-                            Use this conversation for alternate-date
-                            discussions, cancellation explanations, special
-                            instructions, and other booking questions.
+                            This conversation is available for every booking,
+                            regardless of status. Use it for alternate-date
+                            discussions, cancellation questions, special
+                            instructions, receipts, or any other booking issue.
                           </p>
 
                           {loadingMessagesBookingId === booking.id ? (
@@ -1373,20 +1643,26 @@ function UserDashboard() {
                                     style={{
                                       ...styles.conversationMessage,
                                       marginLeft:
-                                        bookingMessage.senderRole ===
-                                        "CUSTOMER"
+                                        bookingMessage.messageType === "CHAT" &&
+                                        bookingMessage.senderRole === "CUSTOMER"
                                           ? 36
                                           : 0,
                                       marginRight:
-                                        bookingMessage.senderRole ===
-                                        "CUSTOMER"
-                                          ? 0
-                                          : 36,
+                                        bookingMessage.messageType === "CHAT" &&
+                                        bookingMessage.senderRole !== "CUSTOMER"
+                                          ? 36
+                                          : 0,
                                       background:
-                                        bookingMessage.senderRole ===
-                                        "CUSTOMER"
-                                          ? "#e8f3ff"
-                                          : "#f3f4f6",
+                                        bookingMessage.messageType !== "CHAT"
+                                          ? "#fff7df"
+                                          : bookingMessage.senderRole ===
+                                              "CUSTOMER"
+                                            ? "#e8f3ff"
+                                            : "#f3f4f6",
+                                      border:
+                                        bookingMessage.messageType !== "CHAT"
+                                          ? "1px solid #f0b429"
+                                          : "1px solid rgba(0,0,0,.06)",
                                     }}
                                   >
                                     <div style={styles.conversationMeta}>
@@ -1395,7 +1671,10 @@ function UserDashboard() {
                                           (bookingMessage.senderRole ===
                                           "OWNER"
                                             ? "Experience Owner"
-                                            : "Customer")}
+                                            : bookingMessage.senderRole ===
+                                                "SYSTEM"
+                                              ? "Coast Life"
+                                              : "Customer")}
                                       </strong>
 
                                       <span>
@@ -1409,6 +1688,15 @@ function UserDashboard() {
                                         })}
                                       </span>
                                     </div>
+
+                                    {bookingMessage.messageType &&
+                                      bookingMessage.messageType !== "CHAT" && (
+                                        <span style={styles.statusMessageType}>
+                                          {bookingMessage.messageType
+                                            .replaceAll("_", " ")
+                                            .toLowerCase()}
+                                        </span>
+                                      )}
 
                                     <p style={styles.conversationText}>
                                       {bookingMessage.message}
@@ -1426,7 +1714,7 @@ function UserDashboard() {
                           )}
 
                           <label style={styles.messageComposerLabel}>
-                            Send a message
+                            Send a message to the owner
                             <textarea
                               rows={3}
                               value={messageDrafts[booking.id] ?? ""}
@@ -1438,7 +1726,7 @@ function UserDashboard() {
                                   [booking.id]: value,
                                 }));
                               }}
-                              placeholder="Ask about another date, explain a cancellation, or share special instructions."
+                              placeholder="Ask a question or send a message about this booking."
                               disabled={
                                 sendingMessageBookingId === booking.id
                               }
@@ -1973,6 +2261,16 @@ const styles = {
     textAlign: "center" as const,
   },
 
+  closedBookingMessagingNote: {
+    margin: "14px 0 0",
+    padding: "10px 12px",
+    borderRadius: 10,
+    background: "#eef2f7",
+    color: "#475569",
+    fontSize: 13,
+    fontWeight: 700,
+  },
+
   bookingMessagesSection: {
     marginTop: 14,
     borderTop: "1px solid #e5e7eb",
@@ -2049,6 +2347,18 @@ const styles = {
     fontSize: 12,
   },
 
+  statusMessageType: {
+    display: "inline-flex",
+    marginTop: 8,
+    padding: "4px 8px",
+    borderRadius: 999,
+    background: "rgba(120,78,0,.1)",
+    color: "#7a4d00",
+    fontSize: 11,
+    fontWeight: 800,
+    textTransform: "capitalize" as const,
+  },
+
   conversationText: {
     margin: "7px 0 0",
     lineHeight: 1.5,
@@ -2092,6 +2402,75 @@ const styles = {
     color: "#c62828",
     fontSize: 13,
     fontWeight: 600,
+  },
+
+  cancelModalOverlay: {
+    position: "fixed" as const,
+    inset: 0,
+    zIndex: 1200,
+    display: "grid",
+    placeItems: "center",
+    padding: 16,
+    background: "rgba(15,23,42,.58)",
+  },
+
+  cancelModal: {
+    width: "min(520px, 94vw)",
+    padding: 22,
+    borderRadius: 18,
+    background: "#fff",
+    boxShadow: "0 20px 50px rgba(15,23,42,.28)",
+  },
+
+  cancelModalTitle: {
+    margin: "0 0 10px",
+  },
+
+  cancelModalText: {
+    margin: "0 0 16px",
+    color: "#475569",
+    lineHeight: 1.5,
+  },
+
+  cancelModalActions: {
+    display: "flex",
+    gap: 10,
+    marginTop: 16,
+  },
+
+  keepBookingButton: {
+    flex: 1,
+    padding: 12,
+    border: "1px solid #cbd5e1",
+    borderRadius: 12,
+    background: "#fff",
+    color: "#334155",
+    fontWeight: 800,
+    cursor: "pointer",
+  },
+
+  confirmCancelButton: {
+    flex: 1,
+    padding: 12,
+    border: "none",
+    borderRadius: 12,
+    background: "#dc2626",
+    color: "#fff",
+    fontWeight: 800,
+    cursor: "pointer",
+  },
+
+  cancelBookingButton: {
+    width: "100%",
+    padding: 13,
+    marginTop: 10,
+    border: "1px solid #dc2626",
+    borderRadius: 14,
+    background: "#fff",
+    color: "#dc2626",
+    fontSize: 15,
+    fontWeight: 800,
+    cursor: "pointer",
   },
 
   payButton: {

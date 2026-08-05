@@ -103,6 +103,7 @@
   justify-content: space-between;
   gap: 12px;
   padding: 12px 14px;
+  margin-bottom: 14px;
   border: 1px solid #dbe3ec;
   border-radius: 12px;
   background: #f8fafc;
@@ -353,4 +354,79 @@
   .booking-conversation-message.highlighted-unread-message {
     animation: none;
   }
+}
+/* Inline Update Booking Date button */
+.update-booking-date-button {
+  flex: 1 1 190px;
+  min-height: 46px;
+  padding: 12px 16px;
+  border: none;
+  border-radius: 10px;
+  background: #f59e0b;
+  color: #fff;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.update-booking-date-button:hover:not(:disabled) {
+  background: #d97706;
+}
+
+.update-booking-date-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.booking-request-actions {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.booking-request-actions .approve-booking-button,
+.booking-request-actions .reject-booking-button {
+  flex: 1 1 190px;
+  min-height: 46px;
+}
+
+@media (max-width: 720px) {
+  .booking-request-actions {
+    flex-direction: column;
+  }
+
+  .booking-request-actions button {
+    width: 100%;
+  }
+}
+/* Full booking conversation timeline */
+.booking-conversation-message.system-message {
+  margin-left: 0;
+  margin-right: 0;
+  border: 1px solid #f0b429;
+  background: #fff7df;
+  color: #5f4300;
+}
+
+.booking-conversation-message-type {
+  display: inline-flex;
+  margin-top: 8px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(120, 78, 0, 0.1);
+  color: #7a4d00;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: capitalize;
+}
+/* Interactive messaging inside booking history cards */
+.booking-history-conversation-section {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid #e5e7eb;
+}
+
+.booking-history-conversation-section .booking-conversation-toggle {
+  margin-bottom: 10px;
 }
