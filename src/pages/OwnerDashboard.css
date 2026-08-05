@@ -333,3 +333,206 @@
     grid-template-columns: 1fr;
   }
 }
+/* Owner profile unread-message badge */
+.owner-profile-unread-button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 16px;
+  padding: 14px;
+  border: 1px solid #f0b429;
+  border-radius: 14px;
+  background: #fff3cd;
+  color: #7a4d00;
+  text-align: left;
+  cursor: pointer;
+  box-shadow: 0 0 0 3px rgba(240, 180, 41, 0.14);
+}
+
+.owner-profile-unread-button:hover {
+  background: #ffeaa7;
+}
+
+.owner-profile-unread-copy {
+  display: grid;
+  gap: 4px;
+}
+
+.owner-profile-unread-copy span {
+  font-size: 13px;
+}
+
+.owner-profile-unread-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  height: 32px;
+  padding: 0 9px;
+  border-radius: 999px;
+  background: #d97706;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+/* Owner all-unread-messages sheet */
+.owner-unread-messages-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1400;
+  display: flex;
+  justify-content: flex-end;
+  background: rgba(15, 23, 42, 0.58);
+}
+
+.owner-unread-messages-sheet {
+  width: min(760px, 96vw);
+  height: 100%;
+  overflow-y: auto;
+  padding: 22px;
+  background: #f2f2f7;
+  box-shadow: -12px 0 34px rgba(15, 23, 42, 0.24);
+}
+
+.owner-unread-messages-header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin: -22px -22px 18px;
+  padding: 22px;
+  border-bottom: 1px solid #dbe3ec;
+  background: #fff;
+}
+
+.owner-unread-messages-header h2,
+.owner-unread-messages-header p {
+  margin-top: 0;
+}
+
+.owner-unread-saving {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #fff3cd;
+  color: #7a4d00;
+  font-weight: 700;
+}
+
+.owner-unread-booking-list {
+  display: grid;
+  gap: 16px;
+}
+
+.owner-unread-booking-card {
+  padding: 16px;
+  border: 1px solid rgba(0, 0, 0, 0.07);
+  border-radius: 16px;
+  background: #fff;
+}
+
+.owner-unread-booking-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.owner-unread-booking-heading h3,
+.owner-unread-booking-heading p {
+  margin-top: 0;
+}
+
+.owner-unread-booking-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 30px;
+  height: 30px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: #d97706;
+  color: #fff;
+  font-weight: 800;
+}
+
+.owner-unread-message-list {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.owner-unread-message-card {
+  padding: 12px;
+  border: 1px solid #f0b429;
+  border-radius: 12px;
+  background: #fff7cc;
+}
+
+.owner-unread-message-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: #475569;
+  font-size: 12px;
+}
+
+.owner-unread-message-card p {
+  margin: 8px 0 0;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+@media (max-width: 640px) {
+  .owner-unread-messages-header,
+  .owner-unread-booking-heading,
+  .owner-unread-message-meta {
+    flex-direction: column;
+  }
+}
+/* Individual unread-message controls */
+.owner-mark-message-read-button {
+  width: 100%;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid #d97706;
+  border-radius: 10px;
+  background: #fff;
+  color: #9a5b00;
+  font-size: 14px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.owner-mark-message-read-button:hover:not(:disabled) {
+  background: #fff3cd;
+}
+
+.owner-mark-message-read-button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+/* Main-dashboard response-needed booking state */
+.pending-booking-badge.response-needed-booking-badge {
+  background: #e8f3ff;
+  color: #0056a6;
+  border: 1px solid #60a5fa;
+}
+
+.booking-response-needed-message {
+  width: 100%;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid #60a5fa;
+  border-radius: 10px;
+  background: #e8f3ff;
+  color: #0056a6;
+  font-weight: 700;
+  line-height: 1.45;
+}

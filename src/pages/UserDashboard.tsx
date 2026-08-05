@@ -50,6 +50,8 @@ function UserDashboard() {
     useState<string | null>(null);
   const [expandedMessagesBookingId, setExpandedMessagesBookingId] =
     useState<string | null>(null);
+  const [pendingUnreadBookingId, setPendingUnreadBookingId] =
+    useState<string | null>(null);
   const [bookingMessages, setBookingMessages] = useState<
     Record<string, BookingMessage[]>
   >({});
@@ -71,6 +73,7 @@ function UserDashboard() {
 
   const [isLoading, setIsLoading] = useState(true);
   const [isEditing, setIsEditing] = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
   const [message, setMessage] = useState("");
@@ -78,6 +81,78 @@ function UserDashboard() {
   useEffect(() => {
     void loadProfile();
   }, []);
+
+  useEffect(() => {
+    if (!showBookings || !pendingUnreadBookingId) {
+      return;
+    }
+
+    const targetBookingId = pendingUnreadBookingId;
+    let cancelled = false;
+
+    async function openPendingConversation() {
+      console.log("=== OPEN PENDING CONVERSATION ===");
+      console.log("targetBookingId =", targetBookingId);
+      console.log(
+        "booking exists in current bookings =",
+        bookings.some(
+          (booking) => booking.id === targetBookingId,
+        ),
+      );
+
+      await loadBookingMessages(targetBookingId);
+
+      if (cancelled) {
+        return;
+      }
+
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          const bookingCard = document.getElementById(
+            `customer-booking-${targetBookingId}`,
+          );
+
+          console.log("bookingCard =", bookingCard);
+
+          if (!bookingCard) {
+            console.warn(
+              "Unread message booking is not present in the current bookings list:",
+              targetBookingId,
+            );
+
+            setMessage(
+              "The unread message belongs to a booking that is not currently loaded. Refreshing bookings may resolve this.",
+            );
+            return;
+          }
+
+          bookingCard.scrollIntoView({
+            behavior: "smooth",
+            block: "start",
+          });
+
+          const messagesPanel = bookingCard.querySelector(
+            '[data-booking-messages-panel="true"]',
+          );
+
+          console.log("messagesPanel =", messagesPanel);
+
+          messagesPanel?.scrollIntoView({
+            behavior: "smooth",
+            block: "center",
+          });
+        });
+      });
+
+      setPendingUnreadBookingId(null);
+    }
+
+    void openPendingConversation();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [showBookings, pendingUnreadBookingId]);
 
   async function loadProfile() {
     try {
@@ -282,6 +357,7 @@ function UserDashboard() {
     }
 
     setMessage("");
+    setShowProfile(true);
     setIsEditing(true);
   }
 
@@ -760,6 +836,33 @@ function UserDashboard() {
     return "Pending Owner Approval";
   }
 
+  const totalUnreadOwnerMessages = Object.values(
+    unreadMessagesByBooking,
+  ).reduce((total, count) => total + count, 0);
+
+  const firstUnreadBookingId =
+    Object.entries(unreadMessagesByBooking)
+      .find(([, unreadCount]) => unreadCount > 0)?.[0] ?? null;
+
+  function openFirstUnreadMessage() {
+    if (!firstUnreadBookingId) {
+      return;
+    }
+
+    setExpandedMessagesBookingId(firstUnreadBookingId);
+    setPendingUnreadBookingId(firstUnreadBookingId);
+    setShowBookings(true);
+  }
+
+  const unconfirmedBookings = bookings.filter((booking) => {
+    const isFinished =
+      booking.paymentStatus === "PAID" ||
+      booking.status === "REJECTED" ||
+      booking.status === "CANCELLED";
+
+    return !isFinished;
+  });
+
   if (isLoading) {
     return (
       <main style={styles.page}>
@@ -790,24 +893,59 @@ function UserDashboard() {
         </div>
       </section>
 
-      {!isEditing && (
-        <div style={styles.dashboardActions}>
-          <button
-            type="button"
-            onClick={beginEditing}
-            style={styles.editButton}
-          >
-            {profile ? "Edit Profile" : "Create Profile"}
-          </button>
+      <div style={styles.dashboardActions}>
+        <button
+          type="button"
+          onClick={() => {
+            if (showProfile) {
+              setShowProfile(false);
+              setIsEditing(false);
+            } else if (profile) {
+              setShowProfile(true);
+            } else {
+              beginEditing();
+            }
+          }}
+          style={styles.editButton}
+        >
+          {showProfile
+            ? "Hide Profile"
+            : profile
+              ? "Show/Edit Profile"
+              : "Create Profile"}
+        </button>
 
-          <button
-            type="button"
-            onClick={() => setShowBookings(true)}
-            style={styles.bookingsButton}
-          >
-            My Bookings ({bookings.length})
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={() => {
+                    setShowBookings(true);
+          }}
+          style={styles.bookingsButton}
+        >
+          My Bookings ({bookings.length})
+        </button>
+      </div>
+
+      {totalUnreadOwnerMessages > 0 && (
+        <button
+          type="button"
+          onClick={openFirstUnreadMessage}
+          style={styles.mainUnreadMessageAlert}
+        >
+          <span style={styles.mainUnreadMessageAlertText}>
+            <strong>
+              {totalUnreadOwnerMessages} new message
+              {totalUnreadOwnerMessages === 1 ? "" : "s"} await
+            </strong>
+            <span>
+              Click to open the first unread owner message.
+            </span>
+          </span>
+
+          <span style={styles.mainUnreadMessageBadge}>
+            {totalUnreadOwnerMessages}
+          </span>
+        </button>
       )}
 
       {message && (
@@ -823,7 +961,7 @@ function UserDashboard() {
         </div>
       )}
 
-      {isEditing && (
+      {showProfile && isEditing && (
         <section style={styles.card}>
           <h2 style={styles.cardTitle}>
             {profile ? "Edit Profile" : "Create Profile"}
@@ -974,8 +1112,84 @@ function UserDashboard() {
         </section>
       )}
 
-      {profile && !isEditing && (
+      <section style={styles.mainBookingsSection}>
+        <div style={styles.mainBookingsHeader}>
+          <div>
+            <h2 style={styles.mainBookingsTitle}>Unconfirmed Bookings</h2>
+            <p style={styles.mainBookingsSubtitle}>
+              Pending approval and accepted bookings awaiting payment.
+            </p>
+          </div>
+
+         
+        </div>
+
+        {unconfirmedBookings.length === 0 ? (
+          <div style={styles.emptyBookingsCard}>
+            There are no unconfirmed bookings.
+          </div>
+        ) : (
+          <div style={styles.mainBookingList}>
+            {unconfirmedBookings.map((booking) => (
+              <article key={booking.id} style={styles.mainBookingCard}>
+                <div style={styles.bookingCardHeader}>
+                  <div>
+                    <h3 style={styles.bookingTitle}>
+                      {booking.experienceName || "Experience Booking"}
+                    </h3>
+                    <p style={styles.bookingDate}>
+                      {formatBookingDateTime(booking.appointmentDateTime)}
+                    </p>
+                  </div>
+
+                  <span style={styles.bookingStatus}>
+                    {getBookingDisplayStatus(booking)}
+                  </span>
+                </div>
+
+                <ProfileRow label="Location" value={booking.location} />
+                <ProfileRow
+                  label="Amount"
+                  value={formatBookingAmount(booking.amountInCents)}
+                />
+
+                {booking.status === "ACCEPTED" &&
+                  booking.paymentStatus === "AWAITING_PAYMENT" && (
+                    <button
+                      type="button"
+                      style={styles.payButton}
+                      disabled={
+                        startingPaymentBookingId === booking.id ||
+                        booking.amountInCents == null ||
+                        booking.amountInCents <= 0
+                      }
+                      onClick={() => {
+                        void startBookingPayment(booking.id);
+                      }}
+                    >
+                      {startingPaymentBookingId === booking.id
+                        ? "Opening Secure Checkout..."
+                        : `Pay ${formatBookingAmount(
+                            booking.amountInCents,
+                          )} Securely`}
+                    </button>
+                  )}
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {showProfile && profile && !isEditing && (
         <>
+          <button
+            type="button"
+            onClick={beginEditing}
+            style={styles.profileEditButton}
+          >
+            Edit Profile
+          </button>
+
           <section style={styles.card}>
             <h2 style={styles.cardTitle}>Contact Information</h2>
 
@@ -1036,17 +1250,20 @@ function UserDashboard() {
                   My Bookings
                 </h2>
                 <p style={styles.modalSubtitle}>
-                  {bookings.length} booking{bookings.length === 1 ? "" : "s"}
+                  {bookings.length} total booking
+                  {bookings.length === 1 ? "" : "s"}
                 </p>
               </div>
 
-              <button
-                type="button"
-                onClick={() => setShowBookings(false)}
-                style={styles.modalCloseButton}
-              >
-                Close
-              </button>
+              <div style={styles.modalHeaderActions}>
+                <button
+                  type="button"
+                  onClick={() => setShowBookings(false)}
+                  style={styles.modalCloseButton}
+                >
+                  Close
+                </button>
+              </div>
             </div>
 
             {bookings.length === 0 ? (
@@ -1054,7 +1271,11 @@ function UserDashboard() {
             ) : (
               <div style={styles.bookingList}>
                 {bookings.map((booking) => (
-                  <article key={booking.id} style={styles.bookingCard}>
+                  <article
+                    id={`customer-booking-${booking.id}`}
+                    key={booking.id}
+                    style={styles.bookingCard}
+                  >
                     <div style={styles.bookingCardHeader}>
                       <div>
                         <h3 style={styles.bookingTitle}>
@@ -1120,7 +1341,10 @@ function UserDashboard() {
                       </button>
 
                       {expandedMessagesBookingId === booking.id && (
-                        <div style={styles.messagesPanel}>
+                        <div
+                          data-booking-messages-panel="true"
+                          style={styles.messagesPanel}
+                        >
                           <p style={styles.messagesPanelTitle}>
                             Conversation with the experience owner
                           </p>
@@ -1461,8 +1685,8 @@ const styles = {
   },
 
   hero: {
-    padding: 24,
-    marginBottom: 16,
+    padding: 16,
+    marginBottom: 14,
     color: "#fff",
     borderRadius: 22,
     background: "linear-gradient(135deg, #007aff, #00a8ff)",
@@ -1478,14 +1702,18 @@ const styles = {
   },
 
   heroTitle: {
-    margin: "8px 0",
-    fontSize: 34,
+    margin: "6px 0",
+    fontSize: 26,
     lineHeight: 1.1,
   },
 
   rewardBox: {
-    padding: 16,
-    marginTop: 18,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 14,
+    padding: 10,
+    marginTop: 12,
     borderRadius: 16,
     background: "rgba(255,255,255,.18)",
     border: "1px solid rgba(255,255,255,.2)",
@@ -1498,8 +1726,8 @@ const styles = {
   },
 
   rewardPoints: {
-    marginTop: 4,
-    fontSize: 42,
+    marginTop: 0,
+    fontSize: 28,
     fontWeight: 800,
   },
 
@@ -1533,6 +1761,108 @@ const styles = {
     fontWeight: 700,
     cursor: "pointer",
     boxShadow: "0 0 0 1px rgba(0,122,255,.25)",
+  },
+
+  mainUnreadMessageAlert: {
+    width: "100%",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 14,
+    padding: 14,
+    marginBottom: 14,
+    border: "1px solid #f0b429",
+    borderRadius: 14,
+    background: "#fff3cd",
+    color: "#7a4d00",
+    textAlign: "left" as const,
+    cursor: "pointer",
+    boxShadow: "0 0 0 3px rgba(240,180,41,.14)",
+  },
+
+  mainUnreadMessageAlertText: {
+    display: "grid",
+    gap: 4,
+  },
+
+  mainUnreadMessageBadge: {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    minWidth: 30,
+    height: 30,
+    padding: "0 8px",
+    borderRadius: 999,
+    background: "#d97706",
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: 800,
+  },
+
+  profileEditButton: {
+    width: "100%",
+    padding: 12,
+    marginBottom: 14,
+    border: "none",
+    borderRadius: 12,
+    background: "#007aff",
+    color: "#fff",
+    fontSize: 15,
+    fontWeight: 700,
+    cursor: "pointer",
+  },
+
+  mainBookingsSection: {
+    marginBottom: 16,
+  },
+
+  mainBookingsHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    gap: 14,
+    marginBottom: 12,
+  },
+
+  mainBookingsTitle: {
+    margin: 0,
+  },
+
+  mainBookingsSubtitle: {
+    margin: "5px 0 0",
+    color: "#666",
+    lineHeight: 1.4,
+  },
+
+  viewAllBookingsButton: {
+    padding: "10px 14px",
+    border: "1px solid #007aff",
+    borderRadius: 12,
+    background: "#fff",
+    color: "#007aff",
+    fontWeight: 700,
+    cursor: "pointer",
+    whiteSpace: "nowrap" as const,
+  },
+
+  mainBookingList: {
+    display: "grid",
+    gap: 12,
+  },
+
+  mainBookingCard: {
+    padding: 16,
+    background: "#fff",
+    borderRadius: 16,
+    border: "1px solid rgba(0,0,0,.06)",
+  },
+
+  emptyBookingsCard: {
+    padding: 16,
+    background: "#fff",
+    borderRadius: 16,
+    border: "1px solid rgba(0,0,0,.06)",
+    color: "#666",
   },
 
   modalOverlay: {
@@ -1574,6 +1904,24 @@ const styles = {
   modalSubtitle: {
     margin: "6px 0 0",
     color: "#666",
+  },
+
+  modalHeaderActions: {
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    flexWrap: "wrap" as const,
+    justifyContent: "flex-end",
+  },
+
+  seeAllButton: {
+    padding: "10px 14px",
+    border: "1px solid #007aff",
+    borderRadius: 12,
+    background: "#fff",
+    color: "#007aff",
+    fontWeight: 700,
+    cursor: "pointer",
   },
 
   modalCloseButton: {

@@ -252,3 +252,105 @@
     width: 100%;
   }
 }
+/* Owner unread and response-needed message indicators */
+.booking-conversation-toggle-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.booking-conversation-toggle.has-new-messages {
+  background: #fff3cd;
+  color: #7a4d00;
+  border-color: #f0b429;
+  box-shadow: 0 0 0 3px rgba(240, 180, 41, 0.18);
+}
+
+.booking-conversation-toggle.needs-response {
+  background: #e8f3ff;
+  color: #0056a6;
+  border-color: #60a5fa;
+}
+
+.booking-message-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: #d97706;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.booking-history-card-indicators {
+  display: grid;
+  justify-items: end;
+  gap: 7px;
+}
+
+.booking-history-message-alert,
+.booking-history-response-alert {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.booking-history-message-alert {
+  background: #fff3cd;
+  color: #7a4d00;
+  border: 1px solid #f0b429;
+}
+
+.booking-history-response-alert {
+  background: #e8f3ff;
+  color: #0056a6;
+  border: 1px solid #60a5fa;
+}
+
+@media (max-width: 640px) {
+  .booking-history-card-indicators {
+    justify-items: start;
+  }
+}
+
+/* Scroll target and temporary highlight for the first unread message */
+.booking-conversation-message {
+  scroll-margin-block: 110px;
+}
+
+.booking-conversation-message.highlighted-unread-message {
+  border: 2px solid #f0b429;
+  background: #fff7cc;
+  box-shadow: 0 0 0 4px rgba(240, 180, 41, 0.2);
+  animation: booking-unread-pulse 2.8s ease-out;
+}
+
+@keyframes booking-unread-pulse {
+  0% {
+    transform: scale(0.985);
+    box-shadow: 0 0 0 8px rgba(240, 180, 41, 0.32);
+  }
+
+  45% {
+    transform: scale(1);
+    box-shadow: 0 0 0 4px rgba(240, 180, 41, 0.2);
+  }
+
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(240, 180, 41, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .booking-conversation-message.highlighted-unread-message {
+    animation: none;
+  }
+}

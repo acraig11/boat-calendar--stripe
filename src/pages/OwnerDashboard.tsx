@@ -167,6 +167,9 @@ function DashboardContent({
   const [bookingMessages, setBookingMessages] = useState<
     Record<string, BookingMessage[]>
   >({});
+  const [historyMessagesByBooking, setHistoryMessagesByBooking] = useState<
+    Record<string, BookingMessage[]>
+  >({});
   const [messageDrafts, setMessageDrafts] = useState<Record<string, string>>(
     {},
   );
@@ -182,6 +185,11 @@ function DashboardContent({
   const [proposedBookingDate, setProposedBookingDate] = useState("");
   const [proposedBookingTime, setProposedBookingTime] = useState("09:00");
   const [updatingDateBookingId, setUpdatingDateBookingId] =
+    useState<string | null>(null);
+  const [highlightedMessageId, setHighlightedMessageId] =
+    useState<string | null>(null);
+  const [showUnreadMessages, setShowUnreadMessages] = useState(false);
+  const [markingMessageReadId, setMarkingMessageReadId] =
     useState<string | null>(null);
 
   const [profileName, setProfileName] = useState("");
@@ -241,12 +249,17 @@ function DashboardContent({
         setProfilePhone(currentProfile.phone ?? "");
       }
 
-      const [experienceResult, bookingResult, calendarResult] =
-        await Promise.all([
-          client.models.Experience.list(),
-          client.models.Booking.list(),
-          client.models.ExperienceCalendarEvent.list(),
-        ]);
+      const [
+        experienceResult,
+        bookingResult,
+        calendarResult,
+        bookingMessageResult,
+      ] = await Promise.all([
+        client.models.Experience.list(),
+        client.models.Booking.list(),
+        client.models.ExperienceCalendarEvent.list(),
+        client.models.BookingMessage.list(),
+      ]);
 
       if (experienceResult.errors?.length) {
         throw new Error(
@@ -266,9 +279,18 @@ function DashboardContent({
         );
       }
 
+      if (bookingMessageResult.errors?.length) {
+        throw new Error(
+          bookingMessageResult.errors
+            .map((error) => error.message)
+            .join(", "),
+        );
+      }
+
       console.log("ALL EXPERIENCES:", experienceResult.data);
       console.log("ALL BOOKINGS:", bookingResult.data);
       console.log("ALL CALENDAR EVENTS:", calendarResult.data);
+      console.log("ALL BOOKING MESSAGES:", bookingMessageResult.data);
 
       if (currentProfile) {
         const ownerExperiences = experienceResult.data.filter(
@@ -289,6 +311,35 @@ function DashboardContent({
           ownerBookings.map((booking) => booking.id),
         );
 
+        const ownerBookingMessages = bookingMessageResult.data.filter(
+          (bookingMessage) =>
+            ownerBookingIds.has(bookingMessage.bookingId),
+        );
+
+        const messagesByBooking =
+          ownerBookingMessages.reduce<Record<string, BookingMessage[]>>(
+            (current, bookingMessage) => {
+              const currentMessages =
+                current[bookingMessage.bookingId] ?? [];
+
+              current[bookingMessage.bookingId] = [
+                ...currentMessages,
+                bookingMessage,
+              ];
+
+              return current;
+            },
+            {},
+          );
+
+        for (const bookingId of Object.keys(messagesByBooking)) {
+          messagesByBooking[bookingId].sort(
+            (first, second) =>
+              new Date(first.createdAt).getTime() -
+              new Date(second.createdAt).getTime(),
+          );
+        }
+
         const ownerCalendarEvents = calendarResult.data.filter(
           (calendarEvent) =>
             calendarEvent.ownerProfileId === currentProfile.id ||
@@ -301,6 +352,7 @@ function DashboardContent({
         setexperiences(ownerExperiences);
         setBookings(ownerBookings);
         setCalendarEvents(ownerCalendarEvents);
+        setHistoryMessagesByBooking(messagesByBooking);
 
         console.log("OWNER PROFILE ID:", currentProfile.id);
         console.log(
@@ -319,6 +371,7 @@ function DashboardContent({
         setexperiences([]);
         setBookings([]);
         setCalendarEvents([]);
+        setHistoryMessagesByBooking({});
       }
     } catch (error) {
       console.error("Could not load owner dashboard:", error);
@@ -690,6 +743,220 @@ function DashboardContent({
     return booking.status;
   }
 
+  function getUnreadCustomerMessageCount(bookingId: string) {
+    return (historyMessagesByBooking[bookingId] ?? []).filter(
+      (bookingMessage) =>
+        bookingMessage.messageType === "CHAT" &&
+        bookingMessage.senderRole === "CUSTOMER" &&
+        !bookingMessage.readByOwnerAt,
+    ).length;
+  }
+
+  function doesBookingNeedOwnerResponse(bookingId: string) {
+    const chatMessages = (historyMessagesByBooking[bookingId] ?? [])
+      .filter((bookingMessage) => bookingMessage.messageType === "CHAT")
+      .sort(
+        (first, second) =>
+          new Date(first.createdAt).getTime() -
+          new Date(second.createdAt).getTime(),
+      );
+
+    const latestChatMessage = chatMessages.at(-1);
+
+    return latestChatMessage?.senderRole === "CUSTOMER";
+  }
+
+  async function markCustomerMessagesRead(bookingId: string) {
+    const unreadMessages = (historyMessagesByBooking[bookingId] ?? []).filter(
+      (bookingMessage) =>
+        bookingMessage.messageType === "CHAT" &&
+        bookingMessage.senderRole === "CUSTOMER" &&
+        !bookingMessage.readByOwnerAt,
+    );
+
+    if (unreadMessages.length === 0) {
+      return;
+    }
+
+    const readAt = new Date().toISOString();
+    const unreadIds = new Set(
+      unreadMessages.map((bookingMessage) => bookingMessage.id),
+    );
+
+    // Update the screen immediately so the New Messages badge clears.
+    setHistoryMessagesByBooking((current) => ({
+      ...current,
+      [bookingId]: (current[bookingId] ?? []).map((bookingMessage) =>
+        unreadIds.has(bookingMessage.id)
+          ? {
+              ...bookingMessage,
+              readByOwnerAt: readAt,
+            }
+          : bookingMessage,
+      ),
+    }));
+
+    setBookingMessages((current) => ({
+      ...current,
+      [bookingId]: (current[bookingId] ?? []).map((bookingMessage) =>
+        unreadIds.has(bookingMessage.id)
+          ? {
+              ...bookingMessage,
+              readByOwnerAt: readAt,
+            }
+          : bookingMessage,
+      ),
+    }));
+
+    // Persist the read markers after the UI has already updated.
+    const updateResults = await Promise.all(
+      unreadMessages.map((bookingMessage) =>
+        client.models.BookingMessage.update({
+          id: bookingMessage.id,
+          readByOwnerAt: readAt,
+        }),
+      ),
+    );
+
+    const updateErrors = updateResults.flatMap(
+      (result) => result.errors ?? [],
+    );
+
+    if (updateErrors.length > 0) {
+      // Reload from the backend if any update failed.
+      await loadDashboard();
+
+      throw new Error(
+        updateErrors.map((error) => error.message).join(", "),
+      );
+    }
+  }
+
+
+  const totalUnreadCustomerMessages = Object.values(
+    historyMessagesByBooking,
+  ).reduce(
+    (total, bookingMessageList) =>
+      total +
+      bookingMessageList.filter(
+        (bookingMessage) =>
+          bookingMessage.messageType === "CHAT" &&
+          bookingMessage.senderRole === "CUSTOMER" &&
+          !bookingMessage.readByOwnerAt,
+      ).length,
+    0,
+  );
+
+  const unreadCustomerMessages = Object.values(
+    historyMessagesByBooking,
+  )
+    .flat()
+    .filter(
+      (bookingMessage) =>
+        bookingMessage.messageType === "CHAT" &&
+        bookingMessage.senderRole === "CUSTOMER" &&
+        !bookingMessage.readByOwnerAt,
+    )
+    .sort(
+      (first, second) =>
+        new Date(first.createdAt).getTime() -
+        new Date(second.createdAt).getTime(),
+    );
+
+  const unreadMessagesGroupedByBooking =
+    unreadCustomerMessages.reduce<
+      Record<string, BookingMessage[]>
+    >((current, bookingMessage) => {
+      current[bookingMessage.bookingId] = [
+        ...(current[bookingMessage.bookingId] ?? []),
+        bookingMessage,
+      ];
+
+      return current;
+    }, {});
+
+  function openAllUnreadCustomerMessages() {
+    console.log("=== OPEN ALL OWNER UNREAD MESSAGES ===");
+    console.log(
+      "unreadCustomerMessages =",
+      unreadCustomerMessages,
+    );
+
+    if (unreadCustomerMessages.length === 0) {
+      setMessage("There are no unread customer messages.");
+      return;
+    }
+
+    setShowUnreadMessages(true);
+  }
+
+  async function markOneCustomerMessageRead(
+    bookingMessage: BookingMessage,
+  ) {
+    if (bookingMessage.readByOwnerAt) {
+      return;
+    }
+
+    const readAt = new Date().toISOString();
+
+    try {
+      setMarkingMessageReadId(bookingMessage.id);
+
+      const result = await client.models.BookingMessage.update({
+        id: bookingMessage.id,
+        readByOwnerAt: readAt,
+      });
+
+      if (result.errors?.length) {
+        throw new Error(
+          result.errors.map((error) => error.message).join(", "),
+        );
+      }
+
+      setHistoryMessagesByBooking((current) => ({
+        ...current,
+        [bookingMessage.bookingId]: (
+          current[bookingMessage.bookingId] ?? []
+        ).map((currentMessage) =>
+          currentMessage.id === bookingMessage.id
+            ? {
+                ...currentMessage,
+                readByOwnerAt: readAt,
+              }
+            : currentMessage,
+        ),
+      }));
+
+      setBookingMessages((current) => ({
+        ...current,
+        [bookingMessage.bookingId]: (
+          current[bookingMessage.bookingId] ?? []
+        ).map((currentMessage) =>
+          currentMessage.id === bookingMessage.id
+            ? {
+                ...currentMessage,
+                readByOwnerAt: readAt,
+              }
+            : currentMessage,
+        ),
+      }));
+    } catch (error: unknown) {
+      console.error(
+        "Could not mark the customer message as read:",
+        error,
+      );
+
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "The message could not be marked as read.",
+      );
+    } finally {
+      setMarkingMessageReadId(null);
+    }
+  }
+
+
   const openBookingRequests: PendingBookingRequest[] = bookings
     .map((booking) => ({
       booking,
@@ -699,11 +966,15 @@ function DashboardContent({
         ) ?? null,
     }))
     .filter(({ booking, calendarEvent }) => {
-      return (
+      const isOpenBooking =
         booking.paymentStatus === "AWAITING_APPROVAL" ||
         booking.paymentStatus === "AWAITING_PAYMENT" ||
         (!booking.paymentStatus &&
-          (!calendarEvent || calendarEvent.status === "PENDING"))
+          (!calendarEvent || calendarEvent.status === "PENDING"));
+
+      return (
+        isOpenBooking ||
+        doesBookingNeedOwnerResponse(booking.id)
       );
     })
     .sort(
@@ -712,7 +983,9 @@ function DashboardContent({
         new Date(second.booking.appointmentDateTime).getTime(),
     );
 
-  async function loadBookingMessages(bookingId: string) {
+  async function loadBookingMessages(
+    bookingId: string,
+  ): Promise<BookingMessage[]> {
     try {
       setLoadingMessagesBookingId(bookingId);
       setMessageErrors((current) => ({
@@ -746,6 +1019,8 @@ function DashboardContent({
         ...current,
         [bookingId]: conversationMessages,
       }));
+
+      return conversationMessages;
     } catch (error: unknown) {
       console.error("Could not load owner booking messages:", error);
 
@@ -756,6 +1031,8 @@ function DashboardContent({
             ? error.message
             : "The booking conversation could not be loaded.",
       }));
+
+      return [];
     } finally {
       setLoadingMessagesBookingId(null);
     }
@@ -764,12 +1041,67 @@ function DashboardContent({
   async function toggleBookingMessages(bookingId: string) {
     if (expandedMessagesBookingId === bookingId) {
       setExpandedMessagesBookingId(null);
+      setHighlightedMessageId(null);
       return;
     }
 
+    const firstUnreadMessage =
+      (historyMessagesByBooking[bookingId] ?? []).find(
+        (bookingMessage) =>
+          bookingMessage.messageType === "CHAT" &&
+          bookingMessage.senderRole === "CUSTOMER" &&
+          !bookingMessage.readByOwnerAt,
+      ) ?? null;
+
     setExpandedMessagesBookingId(bookingId);
-    await loadBookingMessages(bookingId);
+
+    const loadedMessages = await loadBookingMessages(bookingId);
+
+    const messageToHighlight =
+      firstUnreadMessage ??
+      loadedMessages.find(
+        (bookingMessage) =>
+          bookingMessage.senderRole === "CUSTOMER" &&
+          !bookingMessage.readByOwnerAt,
+      ) ??
+      null;
+
+    if (messageToHighlight) {
+      setHighlightedMessageId(messageToHighlight.id);
+
+      window.setTimeout(() => {
+        document
+          .getElementById(
+            `booking-message-${messageToHighlight.id}`,
+          )
+          ?.scrollIntoView({
+            behavior: "smooth",
+            block: "center",
+          });
+      }, 120);
+
+      window.setTimeout(() => {
+        setHighlightedMessageId((currentId) =>
+          currentId === messageToHighlight.id ? null : currentId,
+        );
+      }, 3200);
+    }
+
+    try {
+      await markCustomerMessagesRead(bookingId);
+    } catch (error: unknown) {
+      console.error("Could not mark customer messages as read:", error);
+
+      setMessageErrors((current) => ({
+        ...current,
+        [bookingId]:
+          error instanceof Error
+            ? error.message
+            : "The messages were opened, but could not be marked as read.",
+      }));
+    }
   }
+
 
   async function sendOwnerMessage(booking: Booking) {
     const draft = messageDrafts[booking.id]?.trim() ?? "";
@@ -837,11 +1169,21 @@ function DashboardContent({
         throw new Error("The owner message was not created.");
       }
 
+      const createdMessage = result.data;
+
       setBookingMessages((current) => ({
         ...current,
         [booking.id]: [
           ...(current[booking.id] ?? []),
-          result.data,
+          createdMessage,
+        ],
+      }));
+
+      setHistoryMessagesByBooking((current) => ({
+        ...current,
+        [booking.id]: [
+          ...(current[booking.id] ?? []),
+          createdMessage,
         ],
       }));
 
@@ -1451,6 +1793,26 @@ function DashboardContent({
             <p>
               <strong>Phone:</strong> {profile.phone || "Not provided"}
             </p>
+
+            {totalUnreadCustomerMessages > 0 && (
+              <button
+                type="button"
+                className="owner-profile-unread-button"
+                onClick={openAllUnreadCustomerMessages}
+              >
+                <span className="owner-profile-unread-copy">
+                  <strong>
+                    {totalUnreadCustomerMessages} unread customer message
+                    {totalUnreadCustomerMessages === 1 ? "" : "s"}
+                  </strong>
+                  <span>Click to open all unread messages.</span>
+                </span>
+
+                <span className="owner-profile-unread-count">
+                  {totalUnreadCustomerMessages}
+                </span>
+              </button>
+            )}
           </section>
 
           <section className="dashboard-section">
@@ -1496,8 +1858,17 @@ function DashboardContent({
                     const isAwaitingPayment =
                       booking.paymentStatus === "AWAITING_PAYMENT";
 
+                    const isPendingApproval =
+                      booking.paymentStatus === "AWAITING_APPROVAL" ||
+                      booking.status === "PENDING" ||
+                      (!booking.paymentStatus && !booking.status);
+
+                    const needsOwnerResponse =
+                      doesBookingNeedOwnerResponse(booking.id);
+
                     return (
                     <article
+                      id={`owner-open-booking-${booking.id}`}
                       className="booking-request-card"
                       key={booking.id}
                     >
@@ -1514,10 +1885,20 @@ function DashboardContent({
                           </p>
                         </div>
 
-                        <span className="pending-booking-badge">
-                          {isAwaitingPayment
-                            ? "Approved — Awaiting Payment"
-                            : "Pending Owner Approval"}
+                        <span
+                          className={`pending-booking-badge ${
+                            needsOwnerResponse
+                              ? "response-needed-booking-badge"
+                              : ""
+                          }`}
+                        >
+                          {needsOwnerResponse
+                            ? "Response Needed"
+                            : isAwaitingPayment
+                              ? "Approved — Awaiting Payment"
+                              : isPendingApproval
+                                ? "Pending Owner Approval"
+                                : getBookingDisplayStatus(booking)}
                         </span>
                       </div>
 
@@ -1643,7 +2024,13 @@ function DashboardContent({
                       <div className="booking-conversation-section">
                         <button
                           type="button"
-                          className="booking-conversation-toggle"
+                          className={`booking-conversation-toggle ${
+                            getUnreadCustomerMessageCount(booking.id) > 0
+                              ? "has-new-messages"
+                              : doesBookingNeedOwnerResponse(booking.id)
+                                ? "needs-response"
+                                : ""
+                          }`}
                           aria-expanded={
                             expandedMessagesBookingId === booking.id
                           }
@@ -1651,7 +2038,21 @@ function DashboardContent({
                             void toggleBookingMessages(booking.id);
                           }}
                         >
-                          <span>Messages</span>
+                          <span className="booking-conversation-toggle-label">
+                            {getUnreadCustomerMessageCount(booking.id) > 0 ? (
+                              <>
+                                New messages
+                                <span className="booking-message-count">
+                                  {getUnreadCustomerMessageCount(booking.id)}
+                                </span>
+                              </>
+                            ) : doesBookingNeedOwnerResponse(booking.id) ? (
+                              "Response needed"
+                            ) : (
+                              "Messages"
+                            )}
+                          </span>
+
                           <span aria-hidden="true">
                             {expandedMessagesBookingId === booking.id
                               ? "▲"
@@ -1681,10 +2082,16 @@ function DashboardContent({
                                 {(bookingMessages[booking.id] ?? []).map(
                                   (bookingMessage) => (
                                     <article
+                                      id={`booking-message-${bookingMessage.id}`}
                                       className={`booking-conversation-message ${
                                         bookingMessage.senderRole === "OWNER"
                                           ? "owner-message"
                                           : "customer-message"
+                                      } ${
+                                        highlightedMessageId ===
+                                        bookingMessage.id
+                                          ? "highlighted-unread-message"
+                                          : ""
                                       }`}
                                       key={bookingMessage.id}
                                     >
@@ -1768,7 +2175,7 @@ function DashboardContent({
                       )}
 
                       <div className="booking-request-actions">
-                        {!isAwaitingPayment ? (
+                        {isPendingApproval ? (
                           <>
                             <button
                               type="button"
@@ -1808,13 +2215,18 @@ function DashboardContent({
                                 : "Reject Booking"}
                             </button>
                           </>
-                        ) : (
+                        ) : isAwaitingPayment ? (
                           <p className="booking-payment-status-message">
                             Payment is awaiting completion by the customer.
                             This booking will be confirmed when payment is
                             received.
                           </p>
-                        )}
+                        ) : needsOwnerResponse ? (
+                          <p className="booking-response-needed-message">
+                            The customer sent the latest message. Open the
+                            conversation above and send a response.
+                          </p>
+                        ) : null}
                       </div>
 
                       {isAwaitingPayment &&
@@ -2068,6 +2480,182 @@ function DashboardContent({
         </>
       )}
 
+      {showUnreadMessages && (
+        <div
+          className="owner-unread-messages-overlay"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              setShowUnreadMessages(false);
+            }
+          }}
+        >
+          <section
+            className="owner-unread-messages-sheet"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="owner-unread-messages-title"
+          >
+            <div className="owner-unread-messages-header">
+              <div>
+                <h2 id="owner-unread-messages-title">
+                  Unread Customer Messages
+                </h2>
+                <p>
+                  Showing {unreadCustomerMessages.length} unread message
+                  {unreadCustomerMessages.length === 1 ? "" : "s"}.
+                  Messages remain here until individually marked as read.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => {
+                  setShowUnreadMessages(false);
+                }}
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="owner-unread-booking-list">
+              {Object.entries(unreadMessagesGroupedByBooking).map(
+                ([bookingId, bookingMessageList]) => {
+                  const booking = bookings.find(
+                    (currentBooking) =>
+                      currentBooking.id === bookingId,
+                  );
+
+                  return (
+                    <article
+                      className="owner-unread-booking-card"
+                      key={bookingId}
+                    >
+                      <div className="owner-unread-booking-heading">
+                        <div>
+                          <h3>
+                            {booking?.experienceName ||
+                              "Experience Booking"}
+                          </h3>
+                          <p>
+                            {booking
+                              ? `${booking.customerName} · ${formatBookingDateTime(
+                                  booking.appointmentDateTime,
+                                )}`
+                              : `Booking ${bookingId}`}
+                          </p>
+                        </div>
+
+                        <span className="owner-unread-booking-count">
+                          {bookingMessageList.length}
+                        </span>
+                      </div>
+
+                      <div className="owner-unread-message-list">
+                        {bookingMessageList.map(
+                          (bookingMessage) => (
+                            <article
+                              className="owner-unread-message-card"
+                              key={bookingMessage.id}
+                            >
+                              <div className="owner-unread-message-meta">
+                                <strong>
+                                  {bookingMessage.senderName ||
+                                    booking?.customerName ||
+                                    "Customer"}
+                                </strong>
+
+                                <span>
+                                  {new Date(
+                                    bookingMessage.createdAt,
+                                  ).toLocaleString("en-US", {
+                                    month: "short",
+                                    day: "numeric",
+                                    year: "numeric",
+                                    hour: "numeric",
+                                    minute: "2-digit",
+                                  })}
+                                </span>
+                              </div>
+
+                              <p>{bookingMessage.message}</p>
+
+                              <button
+                                type="button"
+                                className="owner-mark-message-read-button"
+                                disabled={
+                                  markingMessageReadId === bookingMessage.id
+                                }
+                                onClick={() => {
+                                  void markOneCustomerMessageRead(
+                                    bookingMessage,
+                                  );
+                                }}
+                              >
+                                {markingMessageReadId === bookingMessage.id
+                                  ? "Marking as Read..."
+                                  : "Mark as Read"}
+                              </button>
+                            </article>
+                          ),
+                        )}
+                      </div>
+
+                      {booking && (
+                        <button
+                          type="button"
+                          className="primary-button"
+                          onClick={() => {
+                            setShowUnreadMessages(false);
+
+                            const isOpenBooking =
+                              openBookingRequests.some(
+                                ({ booking: openBooking }) =>
+                                  openBooking.id === booking.id,
+                              );
+
+                            if (isOpenBooking) {
+                              void toggleBookingMessages(booking.id);
+
+                              window.setTimeout(() => {
+                                document
+                                  .getElementById(
+                                    `owner-open-booking-${booking.id}`,
+                                  )
+                                  ?.scrollIntoView({
+                                    behavior: "smooth",
+                                    block: "start",
+                                  });
+                              }, 150);
+                            } else {
+                              setShowAllBookings(true);
+
+                              window.setTimeout(() => {
+                                document
+                                  .getElementById(
+                                    `owner-history-booking-${booking.id}`,
+                                  )
+                                  ?.scrollIntoView({
+                                    behavior: "smooth",
+                                    block: "start",
+                                  });
+                              }, 150);
+                            }
+                          }}
+                        >
+                          Open Booking Conversation
+                        </button>
+                      )}
+                    </article>
+                  );
+                },
+              )}
+            </div>
+          </section>
+        </div>
+      )}
+
       {showAllBookings && (
         <div
           className="booking-history-overlay"
@@ -2110,6 +2698,7 @@ function DashboardContent({
               <div className="booking-history-list">
                 {allBookingsSorted.map((booking) => (
                   <article
+                    id={`owner-history-booking-${booking.id}`}
                     className="booking-history-card"
                     key={booking.id}
                   >
@@ -2125,9 +2714,28 @@ function DashboardContent({
                         </p>
                       </div>
 
-                      <span className="booking-history-status">
-                        {getBookingDisplayStatus(booking)}
-                      </span>
+                      <div className="booking-history-card-indicators">
+                        <span className="booking-history-status">
+                          {getBookingDisplayStatus(booking)}
+                        </span>
+
+                        {getUnreadCustomerMessageCount(booking.id) > 0 && (
+                          <span className="booking-history-message-alert">
+                            {getUnreadCustomerMessageCount(booking.id)} new
+                            message
+                            {getUnreadCustomerMessageCount(booking.id) === 1
+                              ? ""
+                              : "s"}
+                          </span>
+                        )}
+
+                        {getUnreadCustomerMessageCount(booking.id) === 0 &&
+                          doesBookingNeedOwnerResponse(booking.id) && (
+                            <span className="booking-history-response-alert">
+                              Response needed
+                            </span>
+                          )}
+                      </div>
                     </div>
 
                     <dl className="booking-history-details">
@@ -2175,6 +2783,69 @@ function DashboardContent({
                         </div>
                       )}
                     </dl>
+
+                    <div className="booking-history-messages">
+                      <h4>All Messages</h4>
+
+                      {(historyMessagesByBooking[booking.id] ?? []).length ===
+                      0 ? (
+                        <p className="booking-history-no-messages">
+                          No messages are associated with this booking.
+                        </p>
+                      ) : (
+                        <div className="booking-history-message-list">
+                          {(historyMessagesByBooking[booking.id] ?? []).map(
+                            (bookingMessage) => (
+                              <article
+                                className={`booking-history-message ${
+                                  bookingMessage.senderRole === "OWNER"
+                                    ? "owner-message"
+                                    : bookingMessage.senderRole ===
+                                        "CUSTOMER"
+                                      ? "customer-message"
+                                      : "system-message"
+                                }`}
+                                key={bookingMessage.id}
+                              >
+                                <div className="booking-history-message-meta">
+                                  <strong>
+                                    {bookingMessage.senderName ||
+                                      (bookingMessage.senderRole === "OWNER"
+                                        ? "Experience Owner"
+                                        : bookingMessage.senderRole ===
+                                            "CUSTOMER"
+                                          ? "Customer"
+                                          : "Coast Life")}
+                                  </strong>
+
+                                  <span>
+                                    {new Date(
+                                      bookingMessage.createdAt,
+                                    ).toLocaleString("en-US", {
+                                      month: "short",
+                                      day: "numeric",
+                                      year: "numeric",
+                                      hour: "numeric",
+                                      minute: "2-digit",
+                                    })}
+                                  </span>
+                                </div>
+
+                                {bookingMessage.messageType && (
+                                  <span className="booking-history-message-type">
+                                    {bookingMessage.messageType
+                                      .replaceAll("_", " ")
+                                      .toLowerCase()}
+                                  </span>
+                                )}
+
+                                <p>{bookingMessage.message}</p>
+                              </article>
+                            ),
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </article>
                 ))}
               </div>

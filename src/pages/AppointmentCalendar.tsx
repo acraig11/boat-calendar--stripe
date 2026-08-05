@@ -9,9 +9,6 @@ import { getCurrentUser } from "aws-amplify/auth";
 import { getUrl } from "aws-amplify/storage";
 import { client } from "../lib/amplifyClient";
 
-import BookingContactForm, {
-  type BookingContactData,
-} from "./BookingContactForm";
 type Experience = {
   id: string;
   name: string;
@@ -165,8 +162,6 @@ function AppointmentCalendarContent() {
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
 
   const [selectedTime, setSelectedTime] = useState("09:00");
-
-  const [showContactForm, setShowContactForm] = useState(false);
 
   const [isSending, setIsSending] = useState(false);
   const datePickerRef = useRef<DatePicker>(null);
@@ -341,7 +336,6 @@ function AppointmentCalendarContent() {
     setSelectedExperience(experience);
     setSelectedDate(null);
     setSelectedTime("09:00");
-    setShowContactForm(false);
   };
 
   const closeAppointmentForm = () => {
@@ -352,21 +346,6 @@ function AppointmentCalendarContent() {
     setSelectedExperience(null);
     setSelectedDate(null);
     setSelectedTime("09:00");
-    setShowContactForm(false);
-  };
-
-  const openContactForm = () => {
-    if (!selectedDate) {
-      alert("Please select a date.");
-      return;
-    }
-
-    if (!selectedTime) {
-      alert("Please select a time.");
-      return;
-    }
-
-    setShowContactForm(true);
   };
 
   async function openBookingMessages(
@@ -424,8 +403,9 @@ function AppointmentCalendarContent() {
     }
   }
 
-  const sendAppointmentRequest = async (contact: BookingContactData) => {
+  const sendAppointmentRequest = async () => {
     const currentUser = await getCurrentUser();
+
     if (!selectedExperience) {
       alert("Please select an experience.");
       return;
@@ -433,14 +413,12 @@ function AppointmentCalendarContent() {
 
     if (!selectedDate) {
       alert("Please select a date.");
-      setShowContactForm(false);
-      return;
+        return;
     }
 
     if (!selectedTime) {
       alert("Please select a time.");
-      setShowContactForm(false);
-      return;
+        return;
     }
 
     const dateString = formatDateForStorage(selectedDate);
@@ -454,6 +432,63 @@ function AppointmentCalendarContent() {
 
     try {
       setIsSending(true);
+
+      const signedInEmail =
+        currentUser.signInDetails?.loginId?.trim().toLowerCase() ?? "";
+
+      const profileResult = await client.models.UserProfile.list({
+        filter: {
+          userId: {
+            eq: currentUser.userId,
+          },
+        },
+      });
+
+      if (profileResult.errors?.length) {
+        throw new Error(
+          profileResult.errors.map((error) => error.message).join(", "),
+        );
+      }
+
+      const customerProfile =
+        [...profileResult.data].sort(
+          (first, second) =>
+            new Date(second.updatedAt).getTime() -
+            new Date(first.updatedAt).getTime(),
+        )[0] ?? null;
+
+      if (!customerProfile) {
+        throw new Error(
+          "Complete your user profile before requesting a booking.",
+        );
+      }
+
+      const customerName = [
+        customerProfile.firstName,
+        customerProfile.lastName,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .trim();
+
+      const customerEmail =
+        customerProfile.ownerEmail?.trim().toLowerCase() ||
+        signedInEmail;
+
+      const customerPhone =
+        customerProfile.phoneNumber?.trim() || undefined;
+
+      if (!customerName) {
+        throw new Error(
+          "Add your first and last name to your user profile before booking.",
+        );
+      }
+
+      if (!customerEmail) {
+        throw new Error(
+          "A customer email address could not be found in your profile.",
+        );
+      }
 
       if (!selectedExperience.ownerProfileId) {
         throw new Error("This experience does not have an owner profile ID.");
@@ -492,9 +527,9 @@ function AppointmentCalendarContent() {
 
       const bookingInput = {
         customerUserId: currentUser.userId,
-        customerName: contact.name.trim(),
-        customerEmail: contact.email.trim(),
-        customerPhone: contact.phone.trim(),
+        customerName,
+        customerEmail,
+        customerPhone,
         appointmentDateTime: appointmentDateTime.toISOString(),
         experienceId: selectedExperience.id,
         experienceName: selectedExperience.name,
@@ -502,6 +537,7 @@ function AppointmentCalendarContent() {
         ownerProfileId: selectedExperience.ownerProfileId,
 
         // Optional payment fields. These do not change the current booking flow.
+        status: "PENDING" as const,
         amountInCents,
         paymentStatus: "AWAITING_APPROVAL",
       };
@@ -614,8 +650,7 @@ function AppointmentCalendarContent() {
       setSelectedExperience(null);
       setSelectedDate(null);
       setSelectedTime("09:00");
-      setShowContactForm(false);
-
+  
       if (bookingMessageCreated) {
         await openBookingMessages(
           booking.id,
@@ -814,8 +849,7 @@ function AppointmentCalendarContent() {
               ×
             </button>
 
-            {!showContactForm ? (
-              <>
+            <>
                 <ExperienceImage
                   className="dialog-experience-image"
                   imagePath={selectedExperience.imageUrl}
@@ -923,21 +957,17 @@ function AppointmentCalendarContent() {
                   <button
                     type="button"
                     className="save-button"
-                    onClick={openContactForm}
+                    disabled={isSending}
+                    onClick={() => {
+                      void sendAppointmentRequest();
+                    }}
                   >
-                    Send Booking Request
+                    {isSending
+                      ? "Sending Booking Request..."
+                      : "Send Booking Request"}
                   </button>
                 </div>
               </>
-            ) : (
-              <BookingContactForm
-                isSending={isSending}
-                onCancel={() => setShowContactForm(false)}
-                onSend={(contact) => {
-                  void sendAppointmentRequest(contact);
-                }}
-              />
-            )}
           </div>
         </div>
       )}
