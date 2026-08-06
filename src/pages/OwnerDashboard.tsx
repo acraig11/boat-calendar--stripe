@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { Authenticator } from "@aws-amplify/ui-react";
+import { useNavigate } from "react-router-dom";
 import "@aws-amplify/ui-react/styles.css";
 import { getUrl, remove, uploadData } from "aws-amplify/storage";
 import { fetchAuthSession, getCurrentUser } from "aws-amplify/auth";
@@ -26,6 +27,14 @@ type BookingMessage = Awaited<
 
 type ExperienceCalendarEvent = Awaited<
   ReturnType<typeof client.models.ExperienceCalendarEvent.list>
+>["data"][number];
+
+type OwnerAccessRequest = Awaited<
+  ReturnType<typeof client.models.OwnerAccessRequest.list>
+>["data"][number];
+
+type OwnerAccessMessage = Awaited<
+  ReturnType<typeof client.models.OwnerAccessMessage.list>
 >["data"][number];
 
 type PendingBookingRequest = {
@@ -73,6 +82,9 @@ const EXPERIENCE_TYPES = [
   "Pickle Ball",
   "Beach",
 ];
+
+const MODERATOR_USER_ID =
+  "14588428-20f1-706f-f6d7-308f21156444";
 
 function ExperienceImage({
   imagePath,
@@ -143,6 +155,121 @@ function ExperienceImage({
   );
 }
 
+function PartnerRequestImage({
+  imagePath,
+  applicantName,
+}: {
+  imagePath: string;
+  applicantName: string;
+}) {
+  const [displayUrl, setDisplayUrl] = useState("");
+  const [imageError, setImageError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadPartnerImage() {
+      setDisplayUrl("");
+      setImageError("");
+
+      try {
+        const result = await getUrl({
+          path: imagePath,
+          options: {
+            validateObjectExistence: true,
+          },
+        });
+
+        if (active) {
+          setDisplayUrl(result.url.toString());
+        }
+      } catch (error: unknown) {
+        console.error(
+          `Could not load partner request image at path "${imagePath}":`,
+          error,
+        );
+
+        if (active) {
+          setImageError("The submitted experience image could not be loaded.");
+        }
+      }
+    }
+
+    void loadPartnerImage();
+
+    return () => {
+      active = false;
+    };
+  }, [imagePath]);
+
+  if (imageError) {
+    return (
+      <p
+        style={{
+          margin: "14px 0",
+          padding: 12,
+          color: "#9f1239",
+          background: "#fff1f2",
+          border: "1px solid #fecdd3",
+          borderRadius: 12,
+        }}
+      >
+        {imageError}
+      </p>
+    );
+  }
+
+  if (!displayUrl) {
+    return (
+      <p
+        style={{
+          margin: "14px 0",
+          color: "#64748b",
+        }}
+      >
+        Loading submitted experience image...
+      </p>
+    );
+  }
+
+  return (
+    <div
+      style={{
+        margin: "16px 0",
+        padding: 12,
+        background: "#f8fafc",
+        border: "1px solid #dbe2ea",
+        borderRadius: 14,
+      }}
+    >
+      <p
+        style={{
+          margin: "0 0 10px",
+          color: "#334155",
+          fontSize: 14,
+          fontWeight: 800,
+        }}
+      >
+        Submitted Experience Image
+      </p>
+
+      <img
+        src={displayUrl}
+        alt={`${applicantName}'s proposed experience`}
+        style={{
+          display: "block",
+          width: "100%",
+          maxWidth: 520,
+          height: 260,
+          objectFit: "cover",
+          borderRadius: 12,
+          border: "1px solid rgba(15, 23, 42, 0.08)",
+        }}
+      />
+    </div>
+  );
+}
+
 function DashboardContent({
   signOut,
   userEmail,
@@ -150,6 +277,8 @@ function DashboardContent({
   signOut?: () => void;
   userEmail: string;
 }) {
+  const navigate = useNavigate();
+
   console.log("OWNER DASHBOARD VERSION: PENDING-LIST-2026-07-31");
 
   const [profile, setProfile] = useState<OwnerProfile | null>(null);
@@ -192,6 +321,29 @@ function DashboardContent({
   const [markingMessageReadId, setMarkingMessageReadId] =
     useState<string | null>(null);
 
+  const [partnerRequests, setPartnerRequests] = useState<OwnerAccessRequest[]>([]);
+  const [partnerRequestHistory, setPartnerRequestHistory] = useState<
+    OwnerAccessRequest[]
+  >([]);
+  const [showPartnerRequestHistory, setShowPartnerRequestHistory] =
+    useState(false);
+  const [partnerMessagesByRequest, setPartnerMessagesByRequest] = useState<
+    Record<string, OwnerAccessMessage[]>
+  >({});
+  const [expandedPartnerRequestId, setExpandedPartnerRequestId] =
+    useState<string | null>(null);
+  const [partnerMessageDrafts, setPartnerMessageDrafts] = useState<
+    Record<string, string>
+  >({});
+  const [updatingPartnerRequestId, setUpdatingPartnerRequestId] =
+    useState<string | null>(null);
+  const [sendingPartnerMessageId, setSendingPartnerMessageId] =
+    useState<string | null>(null);
+
+  const [ownerAccessStatus, setOwnerAccessStatus] = useState<
+    "CHECKING" | "APPROVED" | "PENDING" | "REJECTED" | "NOT_REQUESTED"
+  >("CHECKING");
+
   const [profileName, setProfileName] = useState("");
   const [profilePhone, setProfilePhone] = useState("");
 
@@ -220,10 +372,75 @@ function DashboardContent({
   async function loadDashboard() {
     console.log("loadDashboard started");
     setIsLoading(true);
+    setOwnerAccessStatus("CHECKING");
     setMessage("");
 
     try {
-      const profileResult = await client.models.ExperienceOwnerProfile.list();
+      const currentUser = await getCurrentUser();
+      const isModerator = currentUser.userId === MODERATOR_USER_ID;
+
+      const accessRequestResult =
+        await client.models.OwnerAccessRequest.list({
+          filter: {
+            applicantUserId: {
+              eq: currentUser.userId,
+            },
+          },
+        });
+
+      if (accessRequestResult.errors?.length) {
+        throw new Error(
+          accessRequestResult.errors
+            .map((error) => error.message)
+            .join(", "),
+        );
+      }
+
+      const latestAccessRequest =
+        [...accessRequestResult.data].sort(
+          (first, second) =>
+            new Date(second.updatedAt).getTime() -
+            new Date(first.updatedAt).getTime(),
+        )[0] ?? null;
+
+      const resolvedAccessStatus:
+        | "APPROVED"
+        | "PENDING"
+        | "REJECTED"
+        | "NOT_REQUESTED" =
+        isModerator
+          ? "APPROVED"
+          : !latestAccessRequest
+            ? "NOT_REQUESTED"
+            : latestAccessRequest.status === "APPROVED"
+              ? "APPROVED"
+              : latestAccessRequest.status === "REJECTED"
+                ? "REJECTED"
+                : "PENDING";
+
+      setOwnerAccessStatus(resolvedAccessStatus);
+
+      console.log("OWNER ACCESS CHECK:", {
+        userId: currentUser.userId,
+        isModerator,
+        latestAccessRequest,
+        resolvedAccessStatus,
+      });
+
+      if (resolvedAccessStatus !== "APPROVED") {
+        setProfile(null);
+        setexperiences([]);
+        setBookings([]);
+        setCalendarEvents([]);
+        setHistoryMessagesByBooking({});
+        setPartnerRequests([]);
+        setPartnerRequestHistory([]);
+        setPartnerMessagesByRequest({});
+        return;
+      }
+
+      const profileResult =
+        await client.models.ExperienceOwnerProfile.list();
 
       if (profileResult.errors?.length) {
         throw new Error(
@@ -231,12 +448,43 @@ function DashboardContent({
         );
       }
 
-      const currentUser = await getCurrentUser();
-
-      const currentProfile =
+      let currentProfile =
         profileResult.data.find(
           (ownerProfile) => ownerProfile.userId === currentUser.userId,
         ) ?? null;
+
+      if (
+        !currentProfile &&
+        !isModerator &&
+        latestAccessRequest?.status === "APPROVED"
+      ) {
+        console.log(
+          "No owner profile found. Creating one from the approved partner request.",
+          latestAccessRequest,
+        );
+
+        const createProfileResult =
+          await client.models.ExperienceOwnerProfile.create({
+            userId: currentUser.userId,
+            name: latestAccessRequest.applicantName,
+            email: latestAccessRequest.applicantEmail,
+            phone: latestAccessRequest.applicantPhone || undefined,
+          });
+
+        if (
+          createProfileResult.errors?.length ||
+          !createProfileResult.data
+        ) {
+          throw new Error(
+            createProfileResult.errors
+              ?.map((error) => error.message)
+              .join(", ") ||
+              "The approved owner profile could not be created.",
+          );
+        }
+
+        currentProfile = createProfileResult.data;
+      }
 
       console.log("SIGNED-IN USER ID:", currentUser.userId);
       console.log("ALL OWNER PROFILES:", profileResult.data);
@@ -254,11 +502,27 @@ function DashboardContent({
         bookingResult,
         calendarResult,
         bookingMessageResult,
+        partnerRequestResult,
+        partnerMessageResult,
       ] = await Promise.all([
         client.models.Experience.list(),
         client.models.Booking.list(),
         client.models.ExperienceCalendarEvent.list(),
         client.models.BookingMessage.list(),
+        client.models.OwnerAccessRequest.list({
+          filter: {
+            moderatorUserId: {
+              eq: currentUser.userId,
+            },
+          },
+        }),
+        client.models.OwnerAccessMessage.list({
+          filter: {
+            moderatorUserId: {
+              eq: currentUser.userId,
+            },
+          },
+        }),
       ]);
 
       if (experienceResult.errors?.length) {
@@ -286,6 +550,52 @@ function DashboardContent({
             .join(", "),
         );
       }
+
+      if (partnerRequestResult.errors?.length) {
+        throw new Error(
+          partnerRequestResult.errors.map((error) => error.message).join(", "),
+        );
+      }
+
+      if (partnerMessageResult.errors?.length) {
+        throw new Error(
+          partnerMessageResult.errors.map((error) => error.message).join(", "),
+        );
+      }
+
+      const sortedPartnerRequestHistory = [
+        ...partnerRequestResult.data,
+      ].sort(
+        (first, second) =>
+          new Date(second.createdAt).getTime() -
+          new Date(first.createdAt).getTime(),
+      );
+
+      const sortedPartnerRequests = sortedPartnerRequestHistory.filter(
+        (request) => request.status !== "APPROVED",
+      );
+
+      const partnerMessages = partnerMessageResult.data.reduce<
+        Record<string, OwnerAccessMessage[]>
+      >((current, partnerMessage) => {
+        current[partnerMessage.ownerAccessRequestId] = [
+          ...(current[partnerMessage.ownerAccessRequestId] ?? []),
+          partnerMessage,
+        ];
+        return current;
+      }, {});
+
+      for (const requestId of Object.keys(partnerMessages)) {
+        partnerMessages[requestId].sort(
+          (first, second) =>
+            new Date(first.createdAt).getTime() -
+            new Date(second.createdAt).getTime(),
+        );
+      }
+
+      setPartnerRequestHistory(sortedPartnerRequestHistory);
+      setPartnerRequests(sortedPartnerRequests);
+      setPartnerMessagesByRequest(partnerMessages);
 
       console.log("ALL EXPERIENCES:", experienceResult.data);
       console.log("ALL BOOKINGS:", bookingResult.data);
@@ -1651,6 +1961,147 @@ function DashboardContent({
     }
   }
 
+  async function sendPartnerMessage(request: OwnerAccessRequest) {
+    const draft = partnerMessageDrafts[request.id]?.trim() ?? "";
+
+    if (!draft) {
+      setMessage("Enter a message before sending.");
+      return;
+    }
+
+    try {
+      setSendingPartnerMessageId(request.id);
+      setMessage("");
+
+      const currentUser = await getCurrentUser();
+      const result = await client.models.OwnerAccessMessage.create({
+        ownerAccessRequestId: request.id,
+        applicantUserId: request.applicantUserId,
+        moderatorEmail: request.moderatorEmail,
+        moderatorUserId: currentUser.userId,
+        senderUserId: currentUser.userId,
+        senderRole: "MODERATOR",
+        senderName: profile?.name || "Coast Life Moderator",
+        message: draft,
+        messageType: "CHAT",
+        readByModeratorAt: new Date().toISOString(),
+      });
+
+      if (result.errors?.length || !result.data) {
+        throw new Error(
+          result.errors?.map((error) => error.message).join(", ") ||
+            "The moderator message was not created.",
+        );
+      }
+
+      setPartnerMessagesByRequest((current) => ({
+        ...current,
+        [request.id]: [...(current[request.id] ?? []), result.data],
+      }));
+      setPartnerMessageDrafts((current) => ({ ...current, [request.id]: "" }));
+    } catch (error: unknown) {
+      console.error("Could not send partner-request message:", error);
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "The partner-request message could not be sent.",
+      );
+    } finally {
+      setSendingPartnerMessageId(null);
+    }
+  }
+
+  async function updatePartnerRequestStatus(
+    request: OwnerAccessRequest,
+    status: "APPROVED" | "REJECTED",
+  ) {
+    try {
+      setUpdatingPartnerRequestId(request.id);
+      setMessage("");
+
+      const currentUser = await getCurrentUser();
+      const reviewedAt = new Date().toISOString();
+
+      const requestResult = await client.models.OwnerAccessRequest.update({
+        id: request.id,
+        status,
+        reviewedByUserId: currentUser.userId,
+        reviewedAt,
+      });
+
+      if (requestResult.errors?.length || !requestResult.data) {
+        throw new Error(
+          requestResult.errors?.map((error) => error.message).join(", ") ||
+            "The partner request was not updated.",
+        );
+      }
+
+      const messageResult = await client.models.OwnerAccessMessage.create({
+        ownerAccessRequestId: request.id,
+        applicantUserId: request.applicantUserId,
+        moderatorEmail: request.moderatorEmail,
+        moderatorUserId: currentUser.userId,
+        senderUserId: currentUser.userId,
+        senderRole: "SYSTEM",
+        senderName: "Coast Life",
+        message:
+          status === "APPROVED"
+            ? "Congratulations! Your experience partner request was approved. You can now access the Owner Dashboard."
+            : "Your experience partner request was not approved at this time.",
+        messageType:
+          status === "APPROVED"
+            ? "REQUEST_APPROVED"
+            : "REQUEST_REJECTED",
+        readByModeratorAt: reviewedAt,
+      });
+
+      if (messageResult.errors?.length || !messageResult.data) {
+        throw new Error(
+          messageResult.errors?.map((error) => error.message).join(", ") ||
+            "The decision message was not created.",
+        );
+      }
+
+      const updatedPartnerRequest = requestResult.data;
+      const createdDecisionMessage = messageResult.data;
+
+      setPartnerRequestHistory((current) =>
+        current.map((item) =>
+          item.id === request.id ? updatedPartnerRequest : item,
+        ),
+      );
+
+      setPartnerRequests((current) =>
+        status === "APPROVED"
+          ? current.filter((item) => item.id !== request.id)
+          : current.map((item) =>
+              item.id === request.id ? updatedPartnerRequest : item,
+            ),
+      );
+      setPartnerMessagesByRequest((current) => ({
+        ...current,
+        [request.id]: [
+          ...(current[request.id] ?? []),
+          createdDecisionMessage,
+        ],
+      }));
+      setMessage(
+        status === "APPROVED"
+          ? `${request.applicantName}'s experience partner request was approved.`
+          : `${request.applicantName}'s experience partner request was rejected.`,
+      );
+    } catch (error: unknown) {
+      console.error("Could not update partner request:", error);
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "The partner request could not be updated.",
+      );
+    } finally {
+      setUpdatingPartnerRequestId(null);
+    }
+  }
+
   async function createCheckoutSession(
     bookingId: string,
   ): Promise<{ checkoutUrl: string; reused?: boolean }> {
@@ -1719,8 +2170,64 @@ function DashboardContent({
     };
   }
 
-  if (isLoading) {
-    return <p>Loading owner dashboard...</p>;
+  if (isLoading || ownerAccessStatus === "CHECKING") {
+    return <p>Checking owner dashboard access...</p>;
+  }
+
+  if (ownerAccessStatus !== "APPROVED") {
+    return (
+      <main className="owner-dashboard">
+        <header className="owner-dashboard-header">
+          <div>
+            <h1>Experience Owner Dashboard</h1>
+            <p>Signed in as {userEmail}</p>
+          </div>
+
+          <div className="owner-dashboard-header-actions">
+            <button type="button" onClick={signOut}>
+              Sign Out
+            </button>
+          </div>
+        </header>
+
+        <section className="dashboard-section">
+          <h2>Owner Dashboard Access</h2>
+
+          {ownerAccessStatus === "PENDING" && (
+            <p>
+              Your Experience Partner request is still under review. The Owner
+              Dashboard will become available after Coast Life approves it.
+            </p>
+          )}
+
+          {ownerAccessStatus === "REJECTED" && (
+            <p>
+              Your Experience Partner request was not approved. Review the
+              messages on the Offer Experiences page for more information.
+            </p>
+          )}
+
+          {ownerAccessStatus === "NOT_REQUESTED" && (
+            <div>
+              <p>
+                You must submit an Experience Partner request before using the
+                Owner Dashboard.
+              </p>
+
+              <button
+                type="button"
+                className="primary-button"
+                onClick={() => {
+                  navigate("/offer-experiences");
+                }}
+              >
+                Request to Offer Experiences
+              </button>
+            </div>
+          )}
+        </section>
+      </main>
+    );
   }
 
   return (
@@ -1820,6 +2327,261 @@ function DashboardContent({
                   {totalUnreadCustomerMessages}
                 </span>
               </button>
+            )}
+          </section>
+
+          <section className="dashboard-section">
+            <div className="booking-requests-header">
+              <div>
+                <h2>Experience Partner Requests</h2>
+                
+              </div>
+
+              <div className="booking-requests-header-actions">
+                <button
+                  type="button"
+                  className="primary-button"
+                  onClick={() => {
+                    setShowPartnerRequestHistory(true);
+                  }}
+                >
+                  Partner request history
+                </button>
+              </div>
+            </div>
+
+           {partnerRequests.length === 0 ? (
+  <div className="empty-state-card">
+    <h3>No Pending Partner Requests</h3>
+    <p>
+      All experience partner requests have been reviewed.
+      You can view previous requests and conversations by
+      selecting <strong>Partner Request History</strong>.
+    </p>
+  </div>
+) : (
+              <div className="booking-request-list">
+                {partnerRequests.map((request) => (
+                  <article className="booking-request-card" key={request.id}>
+                    <div className="booking-request-main">
+                      <div>
+                        <h3>{request.applicantName}</h3>
+                        <p className="booking-request-date">
+                          Submitted{" "}
+                          {new Date(request.createdAt).toLocaleString("en-US", {
+                            month: "short",
+                            day: "numeric",
+                            year: "numeric",
+                            hour: "numeric",
+                            minute: "2-digit",
+                          })}
+                        </p>
+                      </div>
+
+                      <span className="pending-booking-badge">
+                        {request.status ?? "PENDING"}
+                      </span>
+                    </div>
+
+                    <dl className="booking-request-details">
+                      <div>
+                        <dt>Applicant name</dt>
+                        <dd>{request.applicantName}</dd>
+                      </div>
+
+                      <div>
+                        <dt>Email</dt>
+                        <dd>
+                          <a href={`mailto:${request.applicantEmail}`}>
+                            {request.applicantEmail}
+                          </a>
+                        </dd>
+                      </div>
+
+                      <div>
+                        <dt>Phone</dt>
+                        <dd>{request.applicantPhone || "Not provided"}</dd>
+                      </div>
+
+                      <div>
+                        <dt>Business name</dt>
+                        <dd>{request.businessName || "Not provided"}</dd>
+                      </div>
+
+                      <div>
+                        <dt>Experiences requested</dt>
+                        <dd>
+                          {request.experienceTypes?.length
+                            ? request.experienceTypes.join(", ")
+                            : "Not provided"}
+                        </dd>
+                      </div>
+
+                      <div>
+                        <dt>Request status</dt>
+                        <dd>{request.status ?? "PENDING"}</dd>
+                      </div>
+                    </dl>
+
+                    <div
+                      style={{
+                        marginTop: 16,
+                        padding: 16,
+                        background: "#f8fafc",
+                        border: "1px solid #dbe2ea",
+                        borderRadius: 14,
+                      }}
+                    >
+                      <p
+                        style={{
+                          margin: "0 0 8px",
+                          color: "#334155",
+                          fontSize: 14,
+                          fontWeight: 800,
+                        }}
+                      >
+                        About the proposed experience
+                      </p>
+
+                      <p
+                        style={{
+                          margin: 0,
+                          color: "#475569",
+                          lineHeight: 1.6,
+                          whiteSpace: "pre-wrap",
+                        }}
+                      >
+                        {request.description || "No description was provided."}
+                      </p>
+                    </div>
+
+                    {request.experienceImageUrl ? (
+                      <PartnerRequestImage
+                        imagePath={request.experienceImageUrl}
+                        applicantName={request.applicantName}
+                      />
+                    ) : (
+                      <p
+                        style={{
+                          margin: "14px 0",
+                          padding: 12,
+                          color: "#64748b",
+                          background: "#f8fafc",
+                          border: "1px solid #dbe2ea",
+                          borderRadius: 12,
+                        }}
+                      >
+                        No experience image was submitted with this request.
+                      </p>
+                    )}
+
+                    <div className="booking-conversation-section">
+                      <button
+                        type="button"
+                        className="booking-conversation-toggle"
+                        aria-expanded={expandedPartnerRequestId === request.id}
+                        onClick={() =>
+                          setExpandedPartnerRequestId((current) =>
+                            current === request.id ? null : request.id,
+                          )
+                        }
+                      >
+                        <span>Messages</span>
+                        <span aria-hidden="true">
+                          {expandedPartnerRequestId === request.id ? "▲" : "▼"}
+                        </span>
+                      </button>
+
+                      {expandedPartnerRequestId === request.id && (
+                        <div className="booking-conversation-panel">
+                          {(partnerMessagesByRequest[request.id] ?? []).length ===
+                          0 ? (
+                            <p>No messages were found for this request.</p>
+                          ) : (
+                            (partnerMessagesByRequest[request.id] ?? []).map(
+                              (partnerMessage) => (
+                                <article
+                                  key={partnerMessage.id}
+                                  className="booking-message-card"
+                                  style={{ marginBottom: 10 }}
+                                >
+                                  <strong>
+                                    {partnerMessage.senderName ||
+                                      partnerMessage.senderRole ||
+                                      "Message"}
+                                  </strong>
+                                  <p>{partnerMessage.message}</p>
+                                  <small>
+                                    {new Date(
+                                      partnerMessage.createdAt,
+                                    ).toLocaleString()}
+                                  </small>
+                                </article>
+                              ),
+                            )
+                          )}
+
+                          <textarea
+                            rows={3}
+                            value={partnerMessageDrafts[request.id] ?? ""}
+                            onChange={(event) =>
+                              setPartnerMessageDrafts((current) => ({
+                                ...current,
+                                [request.id]: event.target.value,
+                              }))
+                            }
+                            placeholder="Send a message to the applicant."
+                            style={{ width: "100%", marginTop: 10 }}
+                          />
+
+                          <button
+                            type="button"
+                            className="primary-button"
+                            disabled={sendingPartnerMessageId === request.id}
+                            onClick={() => void sendPartnerMessage(request)}
+                            style={{ marginTop: 10 }}
+                          >
+                            {sendingPartnerMessageId === request.id
+                              ? "Sending..."
+                              : "Send Message"}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    {request.status === "PENDING" && (
+                      <div
+                        className="booking-request-actions"
+                        style={{ display: "flex", gap: 10, marginTop: 12 }}
+                      >
+                        <button
+                          type="button"
+                          className="primary-button"
+                          disabled={updatingPartnerRequestId === request.id}
+                          onClick={() =>
+                            void updatePartnerRequestStatus(request, "APPROVED")
+                          }
+                        >
+                          {updatingPartnerRequestId === request.id
+                            ? "Updating..."
+                            : "Approve"}
+                        </button>
+
+                        <button
+                          type="button"
+                          className="secondary-button"
+                          disabled={updatingPartnerRequestId === request.id}
+                          onClick={() =>
+                            void updatePartnerRequestStatus(request, "REJECTED")
+                          }
+                        >
+                          Reject
+                        </button>
+                      </div>
+                    )}
+                  </article>
+                ))}
+              </div>
             )}
           </section>
 
@@ -2666,6 +3428,202 @@ function DashboardContent({
                 },
               )}
             </div>
+          </section>
+        </div>
+      )}
+
+
+      {showPartnerRequestHistory && (
+        <div
+          className="booking-history-overlay"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              setShowPartnerRequestHistory(false);
+            }
+          }}
+        >
+          <section
+            className="booking-history-sheet"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="partner-request-history-title"
+          >
+            <div className="booking-history-header">
+              <div>
+                <h2 id="partner-request-history-title">
+                  Experience Partner Request History
+                </h2>
+                <p>
+                  Showing {partnerRequestHistory.length} partner request
+                  {partnerRequestHistory.length === 1 ? "" : "s"}.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => {
+                  setShowPartnerRequestHistory(false);
+                  setExpandedPartnerRequestId(null);
+                }}
+              >
+                Close
+              </button>
+            </div>
+
+            {partnerRequestHistory.length === 0 ? (
+              <p>No experience partner requests were found.</p>
+            ) : (
+              <div className="booking-history-list">
+                {partnerRequestHistory.map((request) => (
+                  <article
+                    id={`owner-partner-history-${request.id}`}
+                    className="booking-history-card"
+                    key={request.id}
+                  >
+                    <div className="booking-history-card-heading">
+                      <div>
+                        <h3>{request.applicantName}</h3>
+                        <p>
+                          Submitted{" "}
+                          {new Date(request.createdAt).toLocaleString("en-US", {
+                            month: "short",
+                            day: "numeric",
+                            year: "numeric",
+                            hour: "numeric",
+                            minute: "2-digit",
+                          })}
+                        </p>
+                      </div>
+
+                      <span className="booking-history-status">
+                        {request.status ?? "PENDING"}
+                      </span>
+                    </div>
+
+                    <dl className="booking-history-details">
+                      <div>
+                        <dt>Email</dt>
+                        <dd>
+                          <a href={`mailto:${request.applicantEmail}`}>
+                            {request.applicantEmail}
+                          </a>
+                        </dd>
+                      </div>
+
+                      <div>
+                        <dt>Phone</dt>
+                        <dd>{request.applicantPhone || "Not provided"}</dd>
+                      </div>
+
+                      <div>
+                        <dt>Business name</dt>
+                        <dd>{request.businessName || "Not provided"}</dd>
+                      </div>
+
+                      <div>
+                        <dt>Experiences requested</dt>
+                        <dd>
+                          {request.experienceTypes?.length
+                            ? request.experienceTypes.join(", ")
+                            : "Not provided"}
+                        </dd>
+                      </div>
+
+                      <div>
+                        <dt>Reviewed</dt>
+                        <dd>
+                          {request.reviewedAt
+                            ? new Date(request.reviewedAt).toLocaleString()
+                            : "Not reviewed"}
+                        </dd>
+                      </div>
+                    </dl>
+
+                    <div
+                      style={{
+                        marginTop: 16,
+                        padding: 16,
+                        background: "#f8fafc",
+                        border: "1px solid #dbe2ea",
+                        borderRadius: 14,
+                      }}
+                    >
+                      <strong>About the proposed experience</strong>
+                      <p
+                        style={{
+                          marginBottom: 0,
+                          whiteSpace: "pre-wrap",
+                          lineHeight: 1.6,
+                        }}
+                      >
+                        {request.description || "No description was provided."}
+                      </p>
+                    </div>
+
+                    {request.experienceImageUrl && (
+                      <PartnerRequestImage
+                        imagePath={request.experienceImageUrl}
+                        applicantName={request.applicantName}
+                      />
+                    )}
+
+                    <div className="booking-conversation-section">
+                      <button
+                        type="button"
+                        className="booking-conversation-toggle"
+                        aria-expanded={expandedPartnerRequestId === request.id}
+                        onClick={() =>
+                          setExpandedPartnerRequestId((current) =>
+                            current === request.id ? null : request.id,
+                          )
+                        }
+                      >
+                        <span>
+                          Messages (
+                          {(partnerMessagesByRequest[request.id] ?? []).length})
+                        </span>
+                        <span aria-hidden="true">
+                          {expandedPartnerRequestId === request.id ? "▲" : "▼"}
+                        </span>
+                      </button>
+
+                      {expandedPartnerRequestId === request.id && (
+                        <div className="booking-conversation-panel">
+                          {(partnerMessagesByRequest[request.id] ?? []).length ===
+                          0 ? (
+                            <p>No messages were found for this request.</p>
+                          ) : (
+                            (partnerMessagesByRequest[request.id] ?? []).map(
+                              (partnerMessage) => (
+                                <article
+                                  key={partnerMessage.id}
+                                  className="booking-message-card"
+                                  style={{ marginBottom: 10 }}
+                                >
+                                  <strong>
+                                    {partnerMessage.senderName ||
+                                      partnerMessage.senderRole ||
+                                      "Message"}
+                                  </strong>
+                                  <p>{partnerMessage.message}</p>
+                                  <small>
+                                    {new Date(
+                                      partnerMessage.createdAt,
+                                    ).toLocaleString()}
+                                  </small>
+                                </article>
+                              ),
+                            )
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
           </section>
         </div>
       )}

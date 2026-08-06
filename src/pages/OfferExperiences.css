@@ -1,0 +1,259 @@
+.offer-experiences-page {
+  width: min(900px, calc(100% - 32px));
+  margin: 0 auto;
+  padding: 32px 0 64px;
+}
+
+.offer-experiences-header {
+  margin-bottom: 24px;
+  padding: 28px;
+  color: #fff;
+  background: linear-gradient(135deg, #007aff, #00a8ff);
+  border-radius: 22px;
+  box-shadow: 0 14px 34px rgba(0, 122, 255, 0.22);
+}
+
+.offer-experiences-eyebrow {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  opacity: 0.9;
+}
+
+.offer-experiences-header h1 {
+  margin: 0 0 10px;
+  font-size: clamp(28px, 5vw, 42px);
+  line-height: 1.1;
+}
+
+.offer-experiences-header p {
+  max-width: 650px;
+  margin: 0;
+  line-height: 1.6;
+  opacity: 0.95;
+}
+
+.offer-experiences-card {
+  padding: 28px;
+  background: #fff;
+  border: 1px solid #dfe5ea;
+  border-radius: 20px;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+}
+
+.offer-experiences-form {
+  display: grid;
+  gap: 20px;
+}
+
+.offer-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.offer-form-field {
+  display: grid;
+  gap: 8px;
+  color: #27364a;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.offer-form-field input,
+.offer-form-field textarea {
+  width: 100%;
+  padding: 12px 14px;
+  color: #182230;
+  font: inherit;
+  font-weight: 500;
+  background: #fff;
+  border: 1px solid #cbd5e1;
+  border-radius: 12px;
+  box-sizing: border-box;
+  outline: none;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    background 0.2s ease;
+}
+
+.offer-form-field input:focus,
+.offer-form-field textarea:focus {
+  border-color: #007aff;
+  box-shadow: 0 0 0 4px rgba(0, 122, 255, 0.12);
+}
+
+.offer-form-field input[readonly] {
+  color: #667085;
+  background: #f7f9fc;
+}
+
+.offer-form-field textarea {
+  min-height: 140px;
+  line-height: 1.55;
+  resize: vertical;
+}
+
+.experience-types-fieldset {
+  margin: 0;
+  padding: 20px;
+  border: 1px solid #dfe5ea;
+  border-radius: 16px;
+  background: #f8fafc;
+}
+
+.experience-types-fieldset legend {
+  padding: 0 8px;
+  color: #1e293b;
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.experience-types-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 6px;
+}
+
+.experience-type-option {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 44px;
+  padding: 9px 11px;
+  color: #334155;
+  font-size: 14px;
+  font-weight: 700;
+  background: #fff;
+  border: 1px solid #dbe2ea;
+  border-radius: 11px;
+  cursor: pointer;
+  transition:
+    transform 0.15s ease,
+    border-color 0.15s ease,
+    background 0.15s ease;
+}
+
+.experience-type-option:hover {
+  transform: translateY(-1px);
+  border-color: #7cbcff;
+  background: #f5faff;
+}
+
+.experience-type-option:has(input:checked) {
+  color: #005bb5;
+  background: #eaf4ff;
+  border-color: #3d9cff;
+}
+
+.experience-type-option input {
+  width: 17px;
+  height: 17px;
+  margin: 0;
+  accent-color: #007aff;
+}
+
+.offer-submit-button {
+  justify-self: start;
+  min-width: 250px;
+  padding: 13px 20px;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 800;
+  background: #007aff;
+  border: 0;
+  border-radius: 12px;
+  cursor: pointer;
+  box-shadow: 0 8px 20px rgba(0, 122, 255, 0.22);
+  transition:
+    transform 0.15s ease,
+    background 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.offer-submit-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  background: #006ee6;
+  box-shadow: 0 10px 24px rgba(0, 122, 255, 0.28);
+}
+
+.offer-submit-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+  box-shadow: none;
+}
+
+.offer-message {
+  margin: 0 0 20px;
+  padding: 12px 14px;
+  color: #334155;
+  background: #eef6ff;
+  border: 1px solid #b9dcff;
+  border-radius: 12px;
+}
+
+.offer-status-card {
+  padding: 30px;
+  background: #fff;
+  border: 1px solid #dfe5ea;
+  border-radius: 20px;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+}
+
+.offer-status-card h1 {
+  margin-top: 0;
+  color: #172033;
+}
+
+.offer-status-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 7px 12px;
+  color: #8a5b00;
+  font-size: 13px;
+  font-weight: 800;
+  text-transform: capitalize;
+  background: #fff4ce;
+  border: 1px solid #f3cf70;
+  border-radius: 999px;
+}
+
+.offer-loading {
+  width: min(900px, calc(100% - 32px));
+  margin: 40px auto;
+  padding: 24px;
+  text-align: center;
+  background: #fff;
+  border: 1px solid #dfe5ea;
+  border-radius: 18px;
+}
+
+@media (max-width: 760px) {
+  .offer-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .experience-types-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .offer-experiences-header,
+  .offer-experiences-card,
+  .offer-status-card {
+    padding: 22px;
+  }
+
+  .offer-submit-button {
+    width: 100%;
+  }
+}
+
+@media (max-width: 460px) {
+  .experience-types-grid {
+    grid-template-columns: 1fr;
+  }
+}

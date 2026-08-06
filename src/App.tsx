@@ -6,7 +6,7 @@ import AppointmentCalendar from "./pages/AppointmentCalendar";
 import Login from "./pages/Login.tsx";
 import OwnerDashboard from "./pages/OwnerDashboard";
 import UserDashboard from "./pages/UserDashboard";
-
+import OfferExperiences from "./pages/OfferExperiences.tsx";
 import Prizes from "./pages/Prizes.tsx";
 import Home from "./pages/Home.tsx";
 import Partner from "./pages/Partner.tsx";
@@ -28,7 +28,7 @@ function App() {
         <Route path="user" element={<UserDashboard />} />
         <Route path="prizes" element={<Prizes />} />
         <Route path="partner" element={<Partner />} />
-      
+      <Route path="offer-experiences"element={<OfferExperiences />}/>
        <Route path="/booking/payment-success"element={<PaymentSuccess />}/>
        <Route path="/booking/payment-cancelled"element={<PaymentCancelled />}/> 
       </Route>

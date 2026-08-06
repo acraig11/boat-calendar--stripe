@@ -6,7 +6,7 @@ import "@aws-amplify/ui-react/styles.css";
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "../../amplify/data/resource";
 import outputs from "../../amplify_outputs.json";
-
+import { useNavigate } from "react-router-dom";
 const client = generateClient<Schema>();
 
 type UserProfile = Schema["UserProfile"]["type"];
@@ -74,6 +74,10 @@ function UserDashboard() {
     Record<string, number>
   >({});
 
+  const [ownerRequestStatus, setOwnerRequestStatus] = useState<
+    "NONE" | "PENDING" | "APPROVED" | "REJECTED"
+  >("NONE");
+
   const [form, setForm] = useState<ProfileForm>(emptyForm);
 
   const [isLoading, setIsLoading] = useState(true);
@@ -82,7 +86,7 @@ function UserDashboard() {
   const [isSaving, setIsSaving] = useState(false);
 
   const [message, setMessage] = useState("");
-
+const navigate = useNavigate();
   useEffect(() => {
     void loadProfile();
   }, []);
@@ -165,6 +169,40 @@ function UserDashboard() {
       setMessage("");
 
       const currentUser = await getCurrentUser();
+
+      const ownerRequestResult =
+        await client.models.OwnerAccessRequest.list({
+          filter: {
+            applicantUserId: {
+              eq: currentUser.userId,
+            },
+          },
+        });
+
+      if (ownerRequestResult.errors?.length) {
+        throw new Error(
+          ownerRequestResult.errors
+            .map((error) => error.message)
+            .join(", "),
+        );
+      }
+
+      const latestOwnerRequest =
+        [...ownerRequestResult.data].sort(
+          (first, second) =>
+            new Date(second.updatedAt).getTime() -
+            new Date(first.updatedAt).getTime(),
+        )[0] ?? null;
+
+      if (!latestOwnerRequest) {
+        setOwnerRequestStatus("NONE");
+      } else if (latestOwnerRequest.status === "APPROVED") {
+        setOwnerRequestStatus("APPROVED");
+      } else if (latestOwnerRequest.status === "REJECTED") {
+        setOwnerRequestStatus("REJECTED");
+      } else {
+        setOwnerRequestStatus("PENDING");
+      }
 
       const signedInEmail =
         currentUser.signInDetails?.loginId?.trim().toLowerCase() ?? "";
@@ -1104,8 +1142,40 @@ function UserDashboard() {
         >
           My Bookings & Messages ({bookings.length})
         </button>
+       
       </div>
 
+{ownerRequestStatus === "NONE" && (
+  <button
+    type="button"
+    onClick={() => navigate("/offer-experiences")}
+    style={styles.bookingsButton}
+  >
+    Become an Experience Partner
+  </button>
+)}
+
+{ownerRequestStatus === "PENDING" && (
+  <div style={styles.partnerStatusCard}>
+    Your Experience Partner request is pending review.
+  </div>
+)}
+
+{ownerRequestStatus === "APPROVED" && (
+  <div style={styles.partnerStatusCardApproved}>
+    You are an approved Experience Partner.
+  </div>
+)}
+
+{ownerRequestStatus === "REJECTED" && (
+  <button
+    type="button"
+    onClick={() => navigate("/offer-experiences")}
+    style={styles.bookingsButton}
+  >
+    Submit New Partner Request
+  </button>
+)}
       {totalUnreadOwnerMessages > 0 && (
         <button
           type="button"
@@ -1963,6 +2033,26 @@ const styles = {
     padding: "20px 16px 40px",
     boxSizing: "border-box" as const,
     background: "#f2f2f7",
+  },
+
+  partnerStatusCard: {
+    marginTop: 16,
+    padding: 16,
+    borderRadius: 12,
+    background: "#fff8e6",
+    border: "1px solid #f0c36d",
+    color: "#8a5a00",
+    fontWeight: 600,
+  },
+
+  partnerStatusCardApproved: {
+    marginTop: 16,
+    padding: 16,
+    borderRadius: 12,
+    background: "#e9f8ee",
+    border: "1px solid #65c18c",
+    color: "#1f6f43",
+    fontWeight: 600,
   },
 
   loadingCard: {

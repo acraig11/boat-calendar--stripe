@@ -39,6 +39,94 @@ const schema = a.schema({
       allow.publicApiKey().to(["read"]),
     ]),
 
+  OwnerAccessRequest: a
+    .model({
+      applicantUserId: a.string().required(),
+      applicantName: a.string().required(),
+      applicantEmail: a.email().required(),
+      applicantPhone: a.string(),
+
+      // Fixed Coast Life moderator email for now.
+      // A backend function can later resolve this email to the Cognito user ID.
+      moderatorEmail: a.email().required(),
+      moderatorUserId: a.string(),
+
+      businessName: a.string(),
+      experienceTypes: a.string().array(),
+      description: a.string(),
+      experienceImageUrl: a.string(),
+      status: a.enum([
+        "PENDING",
+        "APPROVED",
+        "REJECTED",
+      ]),
+
+      moderatorNotes: a.string(),
+      reviewedByUserId: a.string(),
+      reviewedAt: a.datetime(),
+
+      messages: a.hasMany(
+        "OwnerAccessMessage",
+        "ownerAccessRequestId",
+      ),
+    })
+    .secondaryIndexes((index) => [
+      index("applicantUserId"),
+      index("moderatorUserId"),
+      index("status"),
+    ])
+    .authorization((allow) => [
+      allow.ownerDefinedIn("applicantUserId"),
+      allow.ownerDefinedIn("moderatorUserId"),
+    ]),
+
+  OwnerAccessMessage: a
+    .model({
+      ownerAccessRequestId: a.id().required(),
+
+      ownerAccessRequest: a.belongsTo(
+        "OwnerAccessRequest",
+        "ownerAccessRequestId",
+      ),
+
+      applicantUserId: a.string().required(),
+
+      // Keep the moderator email on each message so the intended
+      // Coast Life moderator is always explicit.
+      moderatorEmail: a.email().required(),
+      moderatorUserId: a.string(),
+
+      senderUserId: a.string().required(),
+
+      senderRole: a.enum([
+        "APPLICANT",
+        "MODERATOR",
+        "SYSTEM",
+      ]),
+
+      senderName: a.string(),
+      message: a.string().required(),
+
+      messageType: a.enum([
+        "CHAT",
+        "REQUEST_SUBMITTED",
+        "REQUEST_APPROVED",
+        "REQUEST_REJECTED",
+      ]),
+
+      readByApplicantAt: a.datetime(),
+      readByModeratorAt: a.datetime(),
+    })
+    .secondaryIndexes((index) => [
+      index("ownerAccessRequestId"),
+      index("applicantUserId"),
+      index("moderatorUserId"),
+    ])
+    .authorization((allow) => [
+      allow.ownerDefinedIn("applicantUserId"),
+      allow.ownerDefinedIn("moderatorUserId"),
+    ]),
+
   Experience: a
     .model({
       name: a.string().required(),
@@ -106,49 +194,51 @@ const schema = a.schema({
       allow.authenticated().to(["read", "update"]),
       allow.publicApiKey().to(["create"]),
     ]),
-BookingMessage: a
-  .model({
-    bookingId: a.id().required(),
-    booking: a.belongsTo("Booking", "bookingId"),
 
-    // Cognito user IDs for the two participants.
-    customerUserId: a.string().required(),
-    ownerUserId: a.string().required(),
+  BookingMessage: a
+    .model({
+      bookingId: a.id().required(),
+      booking: a.belongsTo("Booking", "bookingId"),
 
-    // Retained so messages can be associated with the owner's profile.
-    ownerProfileId: a.id().required(),
+      // Cognito user IDs for the two participants.
+      customerUserId: a.string().required(),
+      ownerUserId: a.string().required(),
 
-    senderUserId: a.string(),
-    senderRole: a.enum(["CUSTOMER", "OWNER", "SYSTEM"]),
-    senderName: a.string(),
+      // Retained so messages can be associated with the owner's profile.
+      ownerProfileId: a.id().required(),
 
-    message: a.string().required(),
+      senderUserId: a.string(),
+      senderRole: a.enum(["CUSTOMER", "OWNER", "SYSTEM"]),
+      senderName: a.string(),
 
-    messageType: a.enum([
-  "CHAT",
-  "BOOKING_RECEIVED",
-  "BOOKING_APPROVED",
-  "BOOKING_REJECTED",
-  "AWAITING_PAYMENT",
-  "PAYMENT_RECEIVED",
-  "BOOKING_CONFIRMED",
-  "BOOKING_CANCELLED",
-  "BOOKING_DATE_CHANGED",
-  "PAYMENT_REFUNDED",
-]),
+      message: a.string().required(),
 
-    readByCustomerAt: a.datetime(),
-    readByOwnerAt: a.datetime(),
-  })
-  .secondaryIndexes((index) => [
-    index("bookingId"),
-    index("customerUserId"),
-    index("ownerUserId"),
-  ])
-  .authorization((allow) => [
-    allow.ownerDefinedIn("customerUserId"),
-    allow.ownerDefinedIn("ownerUserId"),
-  ]),
+      messageType: a.enum([
+        "CHAT",
+        "BOOKING_RECEIVED",
+        "BOOKING_APPROVED",
+        "BOOKING_REJECTED",
+        "AWAITING_PAYMENT",
+        "PAYMENT_RECEIVED",
+        "BOOKING_CONFIRMED",
+        "BOOKING_CANCELLED",
+        "BOOKING_DATE_CHANGED",
+        "PAYMENT_REFUNDED",
+      ]),
+
+      readByCustomerAt: a.datetime(),
+      readByOwnerAt: a.datetime(),
+    })
+    .secondaryIndexes((index) => [
+      index("bookingId"),
+      index("customerUserId"),
+      index("ownerUserId"),
+    ])
+    .authorization((allow) => [
+      allow.ownerDefinedIn("customerUserId"),
+      allow.ownerDefinedIn("ownerUserId"),
+    ]),
+
   ExperienceCalendarEvent: a
     .model({
       experienceId: a.id().required(),
