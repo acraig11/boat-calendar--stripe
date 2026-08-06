@@ -343,6 +343,7 @@ function DashboardContent({
   const [ownerAccessStatus, setOwnerAccessStatus] = useState<
     "CHECKING" | "APPROVED" | "PENDING" | "REJECTED" | "NOT_REQUESTED"
   >("CHECKING");
+  const [isModerator, setIsModerator] = useState(false);
 
   const [profileName, setProfileName] = useState("");
   const [profilePhone, setProfilePhone] = useState("");
@@ -377,7 +378,10 @@ function DashboardContent({
 
     try {
       const currentUser = await getCurrentUser();
-      const isModerator = currentUser.userId === MODERATOR_USER_ID;
+      const moderator =
+        currentUser.userId === MODERATOR_USER_ID;
+
+      setIsModerator(moderator);
 
       const accessRequestResult =
         await client.models.OwnerAccessRequest.list({
@@ -408,7 +412,7 @@ function DashboardContent({
         | "PENDING"
         | "REJECTED"
         | "NOT_REQUESTED" =
-        isModerator
+        moderator
           ? "APPROVED"
           : !latestAccessRequest
             ? "NOT_REQUESTED"
@@ -422,7 +426,7 @@ function DashboardContent({
 
       console.log("OWNER ACCESS CHECK:", {
         userId: currentUser.userId,
-        isModerator,
+        isModerator: moderator,
         latestAccessRequest,
         resolvedAccessStatus,
       });
@@ -455,7 +459,7 @@ function DashboardContent({
 
       if (
         !currentProfile &&
-        !isModerator &&
+        !moderator &&
         latestAccessRequest?.status === "APPROVED"
       ) {
         console.log(
@@ -2330,6 +2334,7 @@ function DashboardContent({
             )}
           </section>
 
+          {isModerator && (
           <section className="dashboard-section">
             <div className="booking-requests-header">
               <div>
@@ -2584,6 +2589,7 @@ function DashboardContent({
               </div>
             )}
           </section>
+          )}
 
           <section className="dashboard-section">
             <div className="booking-requests-header">
@@ -3433,7 +3439,7 @@ function DashboardContent({
       )}
 
 
-      {showPartnerRequestHistory && (
+      {isModerator && showPartnerRequestHistory && (
         <div
           className="booking-history-overlay"
           role="presentation"

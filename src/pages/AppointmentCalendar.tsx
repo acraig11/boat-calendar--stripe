@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import DatePicker from "react-datepicker";
-import { Authenticator } from "@aws-amplify/ui-react";
 import "@aws-amplify/ui-react/styles.css";
 import "react-datepicker/dist/react-datepicker.css";
 import "./AppointmentCalendar.css";
@@ -175,6 +174,36 @@ function AppointmentCalendarContent() {
   const [availabilityError, setAvailabilityError] = useState("");
 
   const [showMessages, setShowMessages] = useState(false);
+  const [isSignedIn, setIsSignedIn] = useState(false);
+  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
+
+  useEffect(() => {
+    let isActive = true;
+
+    async function checkSignedInUser() {
+      try {
+        await getCurrentUser();
+
+        if (isActive) {
+          setIsSignedIn(true);
+        }
+      } catch {
+        if (isActive) {
+          setIsSignedIn(false);
+        }
+      } finally {
+        if (isActive) {
+          setIsCheckingAuth(false);
+        }
+      }
+    }
+
+    void checkSignedInUser();
+
+    return () => {
+      isActive = false;
+    };
+  }, []);
 
   useEffect(() => {
     async function loadExperiences() {
@@ -327,6 +356,19 @@ function AppointmentCalendarContent() {
     .map((event) => new Date(event.startDateTime));
 
   const openAppointmentForm = (experience: Experience) => {
+    if (isCheckingAuth) {
+      return;
+    }
+
+    if (!isSignedIn) {
+      navigate("/login", {
+        state: {
+          returnTo: "/booking",
+        },
+      });
+      return;
+    }
+
     setSelectedExperience(experience);
     setSelectedDate(null);
     setSelectedTime("09:00");
@@ -343,8 +385,6 @@ function AppointmentCalendarContent() {
   };
 
   const sendAppointmentRequest = async () => {
-    const currentUser = await getCurrentUser();
-
     if (!selectedExperience) {
       alert("Please select an experience.");
       return;
@@ -371,6 +411,8 @@ function AppointmentCalendarContent() {
 
     try {
       setIsSending(true);
+
+      const currentUser = await getCurrentUser();
 
       const signedInEmail =
         currentUser.signInDetails?.loginId?.trim().toLowerCase() ?? "";
@@ -593,6 +635,23 @@ function AppointmentCalendarContent() {
         errorMessage = String((error as { text?: string }).text);
       }
 
+      const normalizedError = errorMessage.toLowerCase();
+
+      if (
+        normalizedError.includes("not authenticated") ||
+        normalizedError.includes("user needs to be authenticated") ||
+        normalizedError.includes("no current user")
+      ) {
+        setIsSignedIn(false);
+        closeAppointmentForm();
+        navigate("/login", {
+          state: {
+            returnTo: "/booking",
+          },
+        });
+        return;
+      }
+
       alert(`Booking request failed: ${errorMessage}`);
     } finally {
       setIsSending(false);
@@ -736,9 +795,14 @@ function AppointmentCalendarContent() {
                   <button
                     type="button"
                     className="appointment-button"
+                    disabled={isCheckingAuth}
                     onClick={() => openAppointmentForm(experience)}
                   >
-                    Select date and time
+                    {isCheckingAuth
+                      ? "Checking sign-in..."
+                      : isSignedIn
+                        ? "Select date and time"
+                        : "Sign in to request"}
                   </button>
                 </div>
               </article>
@@ -905,5 +969,5 @@ function AppointmentCalendarContent() {
 }
 
 export default function AppointmentCalendar() {
-  return <Authenticator>{() => <AppointmentCalendarContent />}</Authenticator>;
+  return <AppointmentCalendarContent />;
 }

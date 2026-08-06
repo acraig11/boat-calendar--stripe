@@ -1,21 +1,87 @@
 import { Link, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { getCurrentUser, signOut } from "aws-amplify/auth";
+import { Hub } from "aws-amplify/utils";
+import { generateClient } from "aws-amplify/data";
+import type { Schema } from "../../amplify/data/resource";
+import "./Navbar.css";
+const client = generateClient<Schema>();
+
+const MODERATOR_USER_ID =
+  "14588428-20f1-706f-f6d7-308f21156444";
 
 function Navbar() {
   const [loggedIn, setLoggedIn] = useState(false);
+  const [isOwner, setIsOwner] = useState(false);
+  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
+
   const navigate = useNavigate();
 
   useEffect(() => {
-    checkLogin();
+    void checkLogin();
+
+    const stopListening = Hub.listen("auth", ({ payload }) => {
+      console.log("Navbar auth event:", payload.event);
+
+      switch (payload.event) {
+        case "signedIn":
+          void checkLogin();
+          break;
+
+        case "signedOut":
+          setLoggedIn(false);
+          setIsOwner(false);
+          setIsCheckingAuth(false);
+          break;
+      }
+    });
+
+    return () => stopListening();
   }, []);
 
   async function checkLogin() {
     try {
-      await getCurrentUser();
+      setIsCheckingAuth(true);
+
+      const currentUser = await getCurrentUser();
+
       setLoggedIn(true);
+
+      if (currentUser.userId === MODERATOR_USER_ID) {
+        setIsOwner(true);
+        return;
+      }
+
+      const [ownerProfileResult, ownerRequestResult] =
+        await Promise.all([
+          client.models.ExperienceOwnerProfile.list({
+            filter: {
+              userId: { eq: currentUser.userId },
+            },
+          }),
+          client.models.OwnerAccessRequest.list({
+            filter: {
+              applicantUserId: { eq: currentUser.userId },
+            },
+          }),
+        ]);
+
+      const latestRequest =
+        [...ownerRequestResult.data].sort(
+          (a, b) =>
+            new Date(b.updatedAt).getTime() -
+            new Date(a.updatedAt).getTime(),
+        )[0] ?? null;
+
+      setIsOwner(
+        ownerProfileResult.data.length > 0 ||
+          latestRequest?.status === "APPROVED",
+      );
     } catch {
       setLoggedIn(false);
+      setIsOwner(false);
+    } finally {
+      setIsCheckingAuth(false);
     }
   }
 
@@ -23,6 +89,7 @@ function Navbar() {
     try {
       await signOut();
       setLoggedIn(false);
+      setIsOwner(false);
       navigate("/");
     } catch (error) {
       console.error("Logout failed:", error);
@@ -36,26 +103,51 @@ function Navbar() {
       </div>
 
       <nav className="nav">
-        <Link to="/">Home</Link>
-        <Link to="/contact">Contact</Link>
-        <Link to="/booking">Booking</Link>
-        <Link to="/owner">Owner Dashboard</Link>
-        <Link to="/user">User Dashboard</Link>
-        <Link to="/freeMerchandise">Free Merchandise</Link>
+        <Link className="nav-link" to="/">
+          Home
+        </Link>
 
-        {loggedIn ? (
-          <Link
-            to="/"
-            onClick={async (event) => {
-              event.preventDefault();
-              await handleLogout();
-            }}
-          >
-            Logout
+        <Link className="nav-link" to="/contact">
+          Contact
+        </Link>
+
+        <Link className="nav-link" to="/booking">
+          Experiences
+        </Link>
+
+        <Link className="nav-link" to="/freeMerchandise">
+          Free Merchandise
+        </Link>
+
+        {!isCheckingAuth && loggedIn && (
+          <Link className="nav-link" to="/user">
+            User Dashboard
           </Link>
-        ) : (
-          <Link to="/login">Login</Link>
         )}
+
+        {!isCheckingAuth && loggedIn && isOwner && (
+          <Link className="nav-link" to="/owner">
+            Experience-Owner Dashboard
+          </Link>
+        )}
+
+        {!isCheckingAuth &&
+          (loggedIn ? (
+            <Link
+              className="nav-link"
+              to="/"
+              onClick={async (event) => {
+                event.preventDefault();
+                await handleLogout();
+              }}
+            >
+              Logout
+            </Link>
+          ) : (
+            <Link className="nav-link" to="/login">
+              Login
+            </Link>
+          ))}
       </nav>
     </header>
   );
