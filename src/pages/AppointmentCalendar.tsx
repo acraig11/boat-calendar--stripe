@@ -52,17 +52,17 @@ type BookingMessageRecord = {
   senderRole?: "CUSTOMER" | "OWNER" | "SYSTEM" | null;
   message: string;
   messageType?:
-  | "CHAT"
-  | "BOOKING_RECEIVED"
-  | "BOOKING_APPROVED"
-  | "BOOKING_REJECTED"
-  | "AWAITING_PAYMENT"
-  | "PAYMENT_RECEIVED"
-  | "BOOKING_CONFIRMED"
-  | "BOOKING_CANCELLED"
-  | "BOOKING_DATE_CHANGED"
-  | "PAYMENT_REFUNDED"
-  | null;
+    | "CHAT"
+    | "BOOKING_RECEIVED"
+    | "BOOKING_APPROVED"
+    | "BOOKING_REJECTED"
+    | "AWAITING_PAYMENT"
+    | "PAYMENT_RECEIVED"
+    | "BOOKING_CONFIRMED"
+    | "BOOKING_CANCELLED"
+    | "BOOKING_DATE_CHANGED"
+    | "PAYMENT_REFUNDED"
+    | null;
   createdAt?: string | null;
 };
 
@@ -175,13 +175,6 @@ function AppointmentCalendarContent() {
   const [availabilityError, setAvailabilityError] = useState("");
 
   const [showMessages, setShowMessages] = useState(false);
-  const [messageBookingId, setMessageBookingId] = useState<string | null>(null);
-  const [messageExperienceName, setMessageExperienceName] = useState("");
-  const [bookingMessages, setBookingMessages] = useState<
-    BookingMessageRecord[]
-  >([]);
-  const [isLoadingMessages, setIsLoadingMessages] = useState(false);
-  const [messagesError, setMessagesError] = useState("");
 
   useEffect(() => {
     async function loadExperiences() {
@@ -241,15 +234,14 @@ function AppointmentCalendarContent() {
         setIsLoadingAvailability(true);
         setAvailabilityError("");
 
-        const result =
-          await client.models.ExperienceCalendarEvent.list({
-            filter: {
-              experienceId: {
-                eq: selectedExperienceId,
-              },
+        const result = await client.models.ExperienceCalendarEvent.list({
+          filter: {
+            experienceId: {
+              eq: selectedExperienceId,
             },
-            authMode: "apiKey",
-          });
+          },
+          authMode: "apiKey",
+        });
 
         if (result.errors?.length) {
           throw new Error(
@@ -271,10 +263,7 @@ function AppointmentCalendarContent() {
           status: event.status,
         }));
 
-        console.log(
-          "CALENDAR EVENTS FOR SELECTED EXPERIENCE:",
-          events,
-        );
+        console.log("CALENDAR EVENTS FOR SELECTED EXPERIENCE:", events);
 
         setCalendarEvents(events);
       } catch (error) {
@@ -353,61 +342,6 @@ function AppointmentCalendarContent() {
     setSelectedTime("09:00");
   };
 
-  async function openBookingMessages(
-    bookingId: string,
-    experienceName: string,
-  ) {
-    setMessageBookingId(bookingId);
-    setMessageExperienceName(experienceName);
-    setShowMessages(true);
-    setIsLoadingMessages(true);
-    setMessagesError("");
-
-    try {
-      const result = await client.models.BookingMessage.list({
-        filter: {
-          bookingId: {
-            eq: bookingId,
-          },
-        },
-      });
-
-      if (result.errors?.length) {
-        throw new Error(
-          result.errors.map((error) => error.message).join(", "),
-        );
-      }
-
-      const messages: BookingMessageRecord[] = result.data
-        .map((message) => ({
-          id: message.id,
-          bookingId: message.bookingId,
-          senderName: message.senderName,
-          senderRole: message.senderRole,
-          message: message.message,
-          messageType: message.messageType,
-          createdAt: message.createdAt,
-        }))
-        .sort(
-          (first, second) =>
-            new Date(first.createdAt ?? 0).getTime() -
-            new Date(second.createdAt ?? 0).getTime(),
-        );
-
-      setBookingMessages(messages);
-    } catch (error: unknown) {
-      console.error("Could not load booking messages:", error);
-
-      setMessagesError(
-        error instanceof Error
-          ? error.message
-          : "The booking messages could not be loaded.",
-      );
-    } finally {
-      setIsLoadingMessages(false);
-    }
-  }
-
   const sendAppointmentRequest = async () => {
     const currentUser = await getCurrentUser();
 
@@ -418,12 +352,12 @@ function AppointmentCalendarContent() {
 
     if (!selectedDate) {
       alert("Please select a date.");
-        return;
+      return;
     }
 
     if (!selectedTime) {
       alert("Please select a time.");
-        return;
+      return;
     }
 
     const dateString = formatDateForStorage(selectedDate);
@@ -468,20 +402,15 @@ function AppointmentCalendarContent() {
         );
       }
 
-      const customerName = [
-        customerProfile.firstName,
-        customerProfile.lastName,
-      ]
+      const customerName = [customerProfile.firstName, customerProfile.lastName]
         .filter(Boolean)
         .join(" ")
         .trim();
 
       const customerEmail =
-        customerProfile.ownerEmail?.trim().toLowerCase() ||
-        signedInEmail;
+        customerProfile.ownerEmail?.trim().toLowerCase() || signedInEmail;
 
-      const customerPhone =
-        customerProfile.phoneNumber?.trim() || undefined;
+      const customerPhone = customerProfile.phoneNumber?.trim() || undefined;
 
       if (!customerName) {
         throw new Error(
@@ -499,21 +428,18 @@ function AppointmentCalendarContent() {
         throw new Error("This experience does not have an owner profile ID.");
       }
 
-      const ownerProfileResult =
-        await client.models.ExperienceOwnerProfile.get(
-          {
-            id: selectedExperience.ownerProfileId,
-          },
-          {
-            authMode: "apiKey",
-          },
-        );
+      const ownerProfileResult = await client.models.ExperienceOwnerProfile.get(
+        {
+          id: selectedExperience.ownerProfileId,
+        },
+        {
+          authMode: "apiKey",
+        },
+      );
 
       if (ownerProfileResult.errors?.length) {
         throw new Error(
-          ownerProfileResult.errors
-            .map((error) => error.message)
-            .join(", "),
+          ownerProfileResult.errors.map((error) => error.message).join(", "),
         );
       }
 
@@ -617,9 +543,7 @@ function AppointmentCalendarContent() {
 
         if (messageResult.errors?.length) {
           throw new Error(
-            messageResult.errors
-              .map((error) => error.message)
-              .join(", "),
+            messageResult.errors.map((error) => error.message).join(", "),
           );
         }
 
@@ -654,7 +578,6 @@ function AppointmentCalendarContent() {
       setSelectedTime("09:00");
 
       navigate("/user");
-
     } catch (error: unknown) {
       console.error("Could not complete appointment request:", error);
 
@@ -844,124 +767,124 @@ function AppointmentCalendarContent() {
             </button>
 
             <>
-                <ExperienceImage
-                  className="dialog-experience-image"
-                  imagePath={selectedExperience.imageUrl}
-                  experienceName={selectedExperience.name}
-                />
+              <ExperienceImage
+                className="dialog-experience-image"
+                imagePath={selectedExperience.imageUrl}
+                experienceName={selectedExperience.name}
+              />
 
-                <h2>Create Appointment</h2>
+              <h2>Create Appointment</h2>
 
-                <p className="selected-experience-name">
-                  {selectedExperience.name}
-                </p>
+              <p className="selected-experience-name">
+                {selectedExperience.name}
+              </p>
 
-                <p className="selected-experience-details">
-                  {selectedExperience.location}
+              <p className="selected-experience-details">
+                {selectedExperience.location}
 
-                  {selectedExperience.estimatedPrice != null && (
-                    <>
-                      {" · "}
-                      Approximately ${selectedExperience.estimatedPrice}
-                    </>
-                  )}
-                </p>
-
-                <div className="date-time-row">
-                  <div className="datepicker-label">
-                    <label htmlFor="appointment-date">Date</label>
-
-                    <DatePicker
-                      id="appointment-date"
-                      ref={datePickerRef}
-                      selected={selectedDate}
-                      onChange={(date: Date | null) => {
-                        setSelectedDate(date);
-
-                        window.setTimeout(() => {
-                          datePickerRef.current?.setOpen(false);
-                          datePickerRef.current?.input?.blur();
-                        }, 150);
-                      }}
-                      shouldCloseOnSelect={true}
-                      minDate={new Date()}
-                      excludeDates={unavailableDates}
-                      disabled={isLoadingAvailability}
-                      dateFormat="MMMM d, yyyy"
-                      placeholderText={
-                        isLoadingAvailability
-                          ? "Loading availability..."
-                          : "Select a date"
-                      }
-                      className="datepicker-input"
-                    />
-
-                    {availabilityError && (
-                      <p className="experience-status-message experience-error">
-                        Availability could not be loaded: {availabilityError}
-                      </p>
-                    )}
-                  </div>
-
-                  <div className="date-time-field">
-                    <label htmlFor="appointment-time">Time</label>
-
-                    <input
-                      id="appointment-time"
-                      type="time"
-                      value={selectedTime}
-                      onChange={(event) => setSelectedTime(event.target.value)}
-                    />
-                  </div>
-                </div>
-
-                {selectedDate && selectedTime && (
-                  <p className="appointment-summary">
-                    Appointment requested for{" "}
-                    <strong>
-                      {selectedDate.toLocaleDateString("en-US", {
-                        weekday: "long",
-                        month: "long",
-                        day: "numeric",
-                        year: "numeric",
-                      })}
-                    </strong>{" "}
-                    at{" "}
-                    <strong>
-                      {new Date(
-                        `2000-01-01T${selectedTime}:00`,
-                      ).toLocaleTimeString("en-US", {
-                        hour: "numeric",
-                        minute: "2-digit",
-                      })}
-                    </strong>
-                    .
-                  </p>
+                {selectedExperience.estimatedPrice != null && (
+                  <>
+                    {" · "}
+                    Approximately ${selectedExperience.estimatedPrice}
+                  </>
                 )}
+              </p>
 
-                <div className="dialog-buttons">
-                  <button
-                    type="button"
-                    className="cancel-button"
-                    onClick={closeAppointmentForm}
-                  >
-                    Cancel
-                  </button>
+              <div className="date-time-row">
+                <div className="datepicker-label">
+                  <label htmlFor="appointment-date">Date</label>
 
-                  <button
-                    type="button"
-                    className="save-button"
-                    disabled={isSending}
-                    onClick={() => {
-                      void sendAppointmentRequest();
+                  <DatePicker
+                    id="appointment-date"
+                    ref={datePickerRef}
+                    selected={selectedDate}
+                    onChange={(date: Date | null) => {
+                      setSelectedDate(date);
+
+                      window.setTimeout(() => {
+                        datePickerRef.current?.setOpen(false);
+                        datePickerRef.current?.input?.blur();
+                      }, 150);
                     }}
-                  >
-                    {isSending
-                      ? "Sending Booking Request..."
-                      : "Send Booking Request"}
-                  </button>
+                    shouldCloseOnSelect={true}
+                    minDate={new Date()}
+                    excludeDates={unavailableDates}
+                    disabled={isLoadingAvailability}
+                    dateFormat="MMMM d, yyyy"
+                    placeholderText={
+                      isLoadingAvailability
+                        ? "Loading availability..."
+                        : "Select a date"
+                    }
+                    className="datepicker-input"
+                  />
+
+                  {availabilityError && (
+                    <p className="experience-status-message experience-error">
+                      Availability could not be loaded: {availabilityError}
+                    </p>
+                  )}
                 </div>
-              </>
+
+                <div className="date-time-field">
+                  <label htmlFor="appointment-time">Time</label>
+
+                  <input
+                    id="appointment-time"
+                    type="time"
+                    value={selectedTime}
+                    onChange={(event) => setSelectedTime(event.target.value)}
+                  />
+                </div>
+              </div>
+
+              {selectedDate && selectedTime && (
+                <p className="appointment-summary">
+                  Appointment requested for{" "}
+                  <strong>
+                    {selectedDate.toLocaleDateString("en-US", {
+                      weekday: "long",
+                      month: "long",
+                      day: "numeric",
+                      year: "numeric",
+                    })}
+                  </strong>{" "}
+                  at{" "}
+                  <strong>
+                    {new Date(
+                      `2000-01-01T${selectedTime}:00`,
+                    ).toLocaleTimeString("en-US", {
+                      hour: "numeric",
+                      minute: "2-digit",
+                    })}
+                  </strong>
+                  .
+                </p>
+              )}
+
+              <div className="dialog-buttons">
+                <button
+                  type="button"
+                  className="cancel-button"
+                  onClick={closeAppointmentForm}
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="button"
+                  className="save-button"
+                  disabled={isSending}
+                  onClick={() => {
+                    void sendAppointmentRequest();
+                  }}
+                >
+                  {isSending
+                    ? "Sending Booking Request..."
+                    : "Send Booking Request"}
+                </button>
+              </div>
+            </>
           </div>
         </div>
       )}
@@ -975,102 +898,12 @@ function AppointmentCalendarContent() {
               setShowMessages(false);
             }
           }}
-        >
-          <section
-            className="booking-messages-sheet"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="booking-messages-title"
-          >
-            <div className="booking-messages-header">
-              <div>
-                <p className="experience-eyebrow">Booking Updates</p>
-                <h2 id="booking-messages-title">Messages</h2>
-                <p>{messageExperienceName}</p>
-              </div>
-
-              <button
-                type="button"
-                className="dialog-close"
-                aria-label="Close booking messages"
-                onClick={() => setShowMessages(false)}
-              >
-                ×
-              </button>
-            </div>
-
-            {isLoadingMessages && <p>Loading messages...</p>}
-
-            {messagesError && (
-              <p className="experience-status-message experience-error">
-                {messagesError}
-              </p>
-            )}
-
-            {!isLoadingMessages &&
-              !messagesError &&
-              bookingMessages.length === 0 && (
-                <p>No booking messages are available yet.</p>
-              )}
-
-            {!isLoadingMessages &&
-              !messagesError &&
-              bookingMessages.length > 0 && (
-                <div className="booking-message-list">
-                  {bookingMessages.map((bookingMessage) => (
-                    <article
-                      className="booking-message-card"
-                      key={bookingMessage.id}
-                    >
-                      <div className="booking-message-meta">
-                        <strong>
-                          {bookingMessage.senderName || "Coast Life"}
-                        </strong>
-
-                        {bookingMessage.createdAt && (
-                          <span>
-                            {new Date(
-                              bookingMessage.createdAt,
-                            ).toLocaleString("en-US", {
-                              month: "short",
-                              day: "numeric",
-                              hour: "numeric",
-                              minute: "2-digit",
-                            })}
-                          </span>
-                        )}
-                      </div>
-
-                      <p>{bookingMessage.message}</p>
-                    </article>
-                  ))}
-                </div>
-              )}
-
-            {messageBookingId && (
-              <p className="booking-message-reference">
-                Booking reference: {messageBookingId}
-              </p>
-            )}
-
-            <button
-              type="button"
-              className="save-button"
-              onClick={() => setShowMessages(false)}
-            >
-              Done
-            </button>
-          </section>
-        </div>
+        ></div>
       )}
     </main>
   );
 }
 
 export default function AppointmentCalendar() {
-  return (
-    <Authenticator>
-      {() => <AppointmentCalendarContent />}
-    </Authenticator>
-  );
+  return <Authenticator>{() => <AppointmentCalendarContent />}</Authenticator>;
 }

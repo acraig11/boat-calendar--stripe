@@ -11,7 +11,6 @@ function Navbar() {
           <Link to="/">Home</Link>
           <Link to="/contact">Contact</Link>
           <Link to="/booking">Book Experiences</Link>
-
           <Link to="/owner">Owner Dashboard</Link>
           <Link to="/user"> Rewards User Dashboard</Link>
           <Link to="/freeMerchandise">Free Merchandise</Link>

@@ -29,7 +29,7 @@ const stripeRestApi = new RestApi(apiStack, "StripeRestApi", {
     stageName: "dev",
   },
   defaultCorsPreflightOptions: {
-    allowOrigins: ["http://localhost:5173"],
+    allowOrigins: Cors.ALL_ORIGINS,
     allowMethods: Cors.ALL_METHODS,
     allowHeaders: Cors.DEFAULT_HEADERS,
   },

@@ -12,7 +12,7 @@ import Home from "./pages/Home.tsx";
 import Partner from "./pages/Partner.tsx";
 import Contact from "./pages/Contact.tsx";
 import FreeMerch from "./pages/FreeMerch.tsx";
-import TestDatabaseWrites from "./pages/TestDatabaseWrites.tsx";
+
 import PaymentSuccess from "./pages/PaymentSuccess";
 import PaymentCancelled from "./pages/PaymentCancelled";
 function App() {
@@ -28,7 +28,7 @@ function App() {
         <Route path="user" element={<UserDashboard />} />
         <Route path="prizes" element={<Prizes />} />
         <Route path="partner" element={<Partner />} />
-        <Route path="test-database" element={<TestDatabaseWrites />} />
+      
        <Route path="/booking/payment-success"element={<PaymentSuccess />}/>
        <Route path="/booking/payment-cancelled"element={<PaymentCancelled />}/> 
       </Route>
