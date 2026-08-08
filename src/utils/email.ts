@@ -210,12 +210,7 @@ export async function sendBookingDecisionEmail({
   }
 
   const message = messageLines.join("\n");
-const ccRecipients = [
-  ownerEmail?.trim(),
-  "alan_craig@msn.com",
-]
-  .filter(Boolean)
-  .join(",");
+
   const result = await emailjs.send(
     EMAILJS_SERVICE_ID,
     EMAILJS_TEMPLATE_ID,

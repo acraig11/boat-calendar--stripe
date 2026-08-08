@@ -324,7 +324,7 @@ function OfferExperiencesContent() {
           status: "PENDING",
           moderatorEmail: MODERATOR_EMAIL,
           moderatorUserId: MODERATOR_USER_ID,
-        });
+        } as any);
 
       if (requestResult.errors?.length) {
         throw new Error(
@@ -355,7 +355,7 @@ function OfferExperiencesContent() {
             "Your request to offer experiences with Coast Life was submitted for review.",
           messageType: "REQUEST_SUBMITTED",
           readByApplicantAt: new Date().toISOString(),
-        });
+        } as any);
 
       if (messageResult.errors?.length) {
         throw new Error(

@@ -570,7 +570,7 @@ function DashboardContent({
                   name: latestAccessRequest.applicantName,
                   email: latestAccessRequest.applicantEmail,
                   phone: latestAccessRequest.applicantPhone || undefined,
-                });
+                } as any);
 
               if (
                 createProfileResult.errors?.length ||
@@ -868,7 +868,7 @@ function DashboardContent({
                       latestAccessRequest.estimatedPrice ?? undefined,
                     imageUrl: publicExperienceImagePath,
                     ownerProfileId: currentProfile.id,
-                  });
+                  } as any);
 
                 if (
                   createExperienceResult.errors?.length ||
@@ -1054,7 +1054,7 @@ function DashboardContent({
         name: trimmedName,
         email: trimmedEmail,
         phone: profilePhone.trim() || undefined,
-      });
+      } as any);
 
       if (result.errors?.length) {
         throw new Error(result.errors.map((error) => error.message).join(", "));
@@ -1272,7 +1272,7 @@ function DashboardContent({
           description: experienceDescription.trim() || undefined,
           estimatedPrice: numericPrice,
           imageUrl: uploadedImagePath ?? previousImagePath ?? undefined,
-        });
+        } as any);
 
         if (result.errors?.length) {
           throw new Error(
@@ -1320,7 +1320,7 @@ function DashboardContent({
           estimatedPrice: numericPrice,
           imageUrl: uploadedImagePath ?? undefined,
           ownerProfileId: profile.id,
-        });
+        } as any);
 
         if (result.errors?.length) {
           throw new Error(
@@ -1535,7 +1535,7 @@ function DashboardContent({
         client.models.BookingMessage.update({
           id: bookingMessage.id,
           readByOwnerAt: readAt,
-        }),
+        } as any),
       ),
     );
 
@@ -1626,7 +1626,7 @@ function DashboardContent({
       const result = await client.models.BookingMessage.update({
         id: bookingMessage.id,
         readByOwnerAt: readAt,
-      });
+      } as any);
 
       if (result.errors?.length) {
         throw new Error(
@@ -1876,7 +1876,7 @@ function DashboardContent({
         message: draft,
         messageType: "CHAT",
         readByOwnerAt: new Date().toISOString(),
-      });
+      } as any);
 
       if (result.errors?.length) {
         throw new Error(
@@ -2062,7 +2062,7 @@ function DashboardContent({
         await client.models.ExperienceCalendarEvent.update({
           id: request.calendarEvent.id,
           startDateTime: proposedDateTime.toISOString(),
-        });
+        } as any);
 
       if (calendarResult.errors?.length) {
         throw new Error(
@@ -2081,14 +2081,14 @@ function DashboardContent({
       const bookingResult = await client.models.Booking.update({
         id: request.booking.id,
         appointmentDateTime: proposedDateTime.toISOString(),
-      });
+      } as any);
 
       if (bookingResult.errors?.length || !bookingResult.data) {
         try {
           await client.models.ExperienceCalendarEvent.update({
             id: request.calendarEvent.id,
             startDateTime: previousCalendarDateTime,
-          });
+          } as any);
         } catch (rollbackError: unknown) {
           console.error(
             "The booking update failed and the calendar rollback also failed:",
@@ -2129,7 +2129,7 @@ function DashboardContent({
           )}.`,
           messageType: "BOOKING_DATE_CHANGED",
           readByOwnerAt: new Date().toISOString(),
-        });
+        } as any);
 
       if (messageResult.errors?.length) {
         throw new Error(
@@ -2226,7 +2226,7 @@ function DashboardContent({
         await client.models.ExperienceCalendarEvent.update({
           id: request.calendarEvent.id,
           status,
-        });
+        } as any);
 
       if (calendarResult.errors?.length) {
         throw new Error(
@@ -2243,7 +2243,7 @@ function DashboardContent({
         status,
         paymentStatus:
           status === "ACCEPTED" ? "AWAITING_PAYMENT" : "REJECTED",
-      });
+      } as any);
 
       if (bookingResult.errors?.length) {
         throw new Error(
@@ -2288,7 +2288,7 @@ function DashboardContent({
               senderName: "Coast Life",
               message: "Your booking request has been approved.",
               messageType: "BOOKING_APPROVED",
-            });
+            } as any);
 
           if (approvedMessageResult.errors?.length) {
             throw new Error(
@@ -2309,7 +2309,7 @@ function DashboardContent({
               message:
                 "Your booking will be confirmed once payment is received.",
               messageType: "AWAITING_PAYMENT",
-            });
+            } as any);
 
           if (awaitingPaymentMessageResult.errors?.length) {
             throw new Error(
@@ -2361,7 +2361,7 @@ function DashboardContent({
               message:
                 "Unfortunately, your booking request was not approved.",
               messageType: "BOOKING_REJECTED",
-            });
+            } as any);
 
           if (rejectedMessageResult.errors?.length) {
             throw new Error(
@@ -2450,7 +2450,7 @@ function DashboardContent({
         message: draft,
         messageType: "CHAT",
         readByModeratorAt: new Date().toISOString(),
-      });
+      } as any);
 
       if (result.errors?.length || !result.data) {
         throw new Error(
@@ -2492,7 +2492,7 @@ function DashboardContent({
         status,
         reviewedByUserId: currentUser.userId,
         reviewedAt,
-      });
+      } as any);
 
       if (requestResult.errors?.length || !requestResult.data) {
         throw new Error(
@@ -2518,7 +2518,7 @@ function DashboardContent({
             ? "REQUEST_APPROVED"
             : "REQUEST_REJECTED",
         readByModeratorAt: reviewedAt,
-      });
+      } as any);
 
       if (messageResult.errors?.length || !messageResult.data) {
         throw new Error(

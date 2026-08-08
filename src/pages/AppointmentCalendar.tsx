@@ -48,26 +48,7 @@ type CalendarEvent = {
   status?: "PENDING" | "ACCEPTED" | "REJECTED" | "CANCELLED" | "BLOCKED" | null;
 };
 
-type BookingMessageRecord = {
-  id: string;
-  bookingId: string;
-  senderName?: string | null;
-  senderRole?: "CUSTOMER" | "OWNER" | "SYSTEM" | null;
-  message: string;
-  messageType?:
-    | "CHAT"
-    | "BOOKING_RECEIVED"
-    | "BOOKING_APPROVED"
-    | "BOOKING_REJECTED"
-    | "AWAITING_PAYMENT"
-    | "PAYMENT_RECEIVED"
-    | "BOOKING_CONFIRMED"
-    | "BOOKING_CANCELLED"
-    | "BOOKING_DATE_CHANGED"
-    | "PAYMENT_REFUNDED"
-    | null;
-  createdAt?: string | null;
-};
+
 
 function formatDateForStorage(date: Date): string {
   const year = date.getFullYear();
@@ -529,7 +510,7 @@ function AppointmentCalendarContent() {
 
       console.log("BOOKING INPUT:", bookingInput);
 
-      const bookingResult = await client.models.Booking.create(bookingInput, {
+      const bookingResult = await client.models.Booking.create(bookingInput as any, {
         authMode: "apiKey",
       });
 
@@ -560,7 +541,7 @@ function AppointmentCalendarContent() {
       console.log("CALENDAR INPUT:", calendarInput);
 
       const calendarResult = await client.models.ExperienceCalendarEvent.create(
-        calendarInput,
+        calendarInput as any,
         {
           authMode: "apiKey",
         },
@@ -580,8 +561,6 @@ function AppointmentCalendarContent() {
 
       const calendarEvent = calendarResult.data;
 
-      let bookingMessageCreated = false;
-
       try {
         const messageResult = await client.models.BookingMessage.create({
           bookingId: booking.id,
@@ -593,7 +572,7 @@ function AppointmentCalendarContent() {
           message:
             "Your booking request was received and is awaiting owner review.",
           messageType: "BOOKING_RECEIVED",
-        });
+        } as any);
 
         if (messageResult.errors?.length) {
           throw new Error(
@@ -607,7 +586,6 @@ function AppointmentCalendarContent() {
           );
         }
 
-        bookingMessageCreated = true;
       } catch (messageError: unknown) {
         console.error(
           "The booking was created, but its initial status message could not be created:",
