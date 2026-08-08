@@ -45,7 +45,8 @@ const schema = a.schema({
       applicantName: a.string().required(),
       applicantEmail: a.email().required(),
       applicantPhone: a.string(),
-
+      experienceLocation: a.string().required(),
+      estimatedPrice: a.float(),
       // Fixed Coast Life moderator email for now.
       // A backend function can later resolve this email to the Cognito user ID.
       moderatorEmail: a.email().required(),
@@ -136,6 +137,7 @@ const schema = a.schema({
       imageUrl: a.string(),
       experienceType: a.string(),
       ownerProfileId: a.id().required(),
+      ownerAccessRequestId: a.id(),
       ownerProfile: a.belongsTo(
         "ExperienceOwnerProfile",
         "ownerProfileId",

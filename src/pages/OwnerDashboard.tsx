@@ -2,12 +2,16 @@ import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { Authenticator } from "@aws-amplify/ui-react";
 import { useNavigate } from "react-router-dom";
 import "@aws-amplify/ui-react/styles.css";
-import { getUrl, remove, uploadData } from "aws-amplify/storage";
+import { downloadData, getUrl, remove, uploadData } from "aws-amplify/storage";
 import { fetchAuthSession, getCurrentUser } from "aws-amplify/auth";
 import { client } from "../lib/amplifyClient";
 import outputs from "../../amplify_outputs.json";
 import "./OwnerDashboard.css";
 import "./OwnerBookingRequests.css";
+import {
+  sendBookingDecisionEmail,
+  sendPartnerDecisionEmail,
+} from "../utils/email";
 
 type OwnerProfile = Awaited<
   ReturnType<typeof client.models.ExperienceOwnerProfile.list>
@@ -86,12 +90,55 @@ const EXPERIENCE_TYPES = [
 const MODERATOR_USER_ID =
   "14588428-20f1-706f-f6d7-308f21156444";
 
+/*
+ * Prevent React development-mode double effects or overlapping dashboard loads
+ * from creating the same initial approved experience twice in one browser session.
+ * The backend duplicate check below remains the primary safeguard.
+ */
+const initialExperienceCreationInProgress = new Set<string>();
+
+/*
+ * Prevent overlapping OwnerDashboard loads (including React StrictMode's
+ * development double-effect behavior) from creating the same owner profile
+ * twice.
+ */
+const ownerProfileCreationInProgress = new Set<string>();
+
+async function copyPartnerImageToPublicExperienceImages(
+  partnerImagePath: string,
+) {
+  const sourceFileName =
+    partnerImagePath.split("/").pop() || "experience-image.jpg";
+
+  const extensionMatch = sourceFileName.match(/\.([a-zA-Z0-9]+)$/);
+  const extension = extensionMatch?.[1]?.toLowerCase() || "jpg";
+
+  const downloadResult = await downloadData({
+    path: partnerImagePath,
+  }).result;
+
+  const imageBlob = await downloadResult.body.blob();
+
+  const copiedImageResult = await uploadData({
+    path: ({ identityId }) =>
+      `experience-images/${identityId}/${crypto.randomUUID()}.${extension}`,
+    data: imageBlob,
+    options: {
+      preventOverwrite: true,
+    },
+  }).result;
+
+  return copiedImageResult.path;
+}
+
 function ExperienceImage({
   imagePath,
   experienceName,
+  className,
 }: {
   imagePath: string;
   experienceName: string;
+  className?: string;
 }) {
   const [displayUrl, setDisplayUrl] = useState("");
   const [imageError, setImageError] = useState("");
@@ -145,12 +192,7 @@ function ExperienceImage({
     <img
       src={displayUrl}
       alt={experienceName}
-      width="200"
-      style={{
-        height: "140px",
-        objectFit: "cover",
-        borderRadius: "10px",
-      }}
+      className={className}
     />
   );
 }
@@ -364,6 +406,8 @@ function DashboardContent({
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [showAddexperienceForm, setShowAddexperienceForm] = useState(false);
+  const [editingExperience, setEditingExperience] =
+    useState<Experience | null>(null);
   const [deletingexperienceId, setDeletingexperienceId] = useState<
     string | null
   >(null);
@@ -462,32 +506,111 @@ function DashboardContent({
         !moderator &&
         latestAccessRequest?.status === "APPROVED"
       ) {
-        console.log(
-          "No owner profile found. Creating one from the approved partner request.",
-          latestAccessRequest,
-        );
-
-        const createProfileResult =
-          await client.models.ExperienceOwnerProfile.create({
-            userId: currentUser.userId,
-            name: latestAccessRequest.applicantName,
-            email: latestAccessRequest.applicantEmail,
-            phone: latestAccessRequest.applicantPhone || undefined,
-          });
-
-        if (
-          createProfileResult.errors?.length ||
-          !createProfileResult.data
-        ) {
-          throw new Error(
-            createProfileResult.errors
-              ?.map((error) => error.message)
-              .join(", ") ||
-              "The approved owner profile could not be created.",
+        if (ownerProfileCreationInProgress.has(currentUser.userId)) {
+          console.log(
+            "Owner profile creation is already in progress for this user.",
+            currentUser.userId,
           );
-        }
 
-        currentProfile = createProfileResult.data;
+          for (let attempt = 0; attempt < 20 && !currentProfile; attempt += 1) {
+            await new Promise((resolve) => window.setTimeout(resolve, 100));
+
+            const retryProfileResult =
+              await client.models.ExperienceOwnerProfile.list({
+                filter: {
+                  userId: {
+                    eq: currentUser.userId,
+                  },
+                },
+              });
+
+            if (retryProfileResult.errors?.length) {
+              throw new Error(
+                retryProfileResult.errors
+                  .map((error) => error.message)
+                  .join(", "),
+              );
+            }
+
+            currentProfile = retryProfileResult.data[0] ?? null;
+          }
+        } else {
+          ownerProfileCreationInProgress.add(currentUser.userId);
+
+          try {
+            const latestProfileResult =
+              await client.models.ExperienceOwnerProfile.list({
+                filter: {
+                  userId: {
+                    eq: currentUser.userId,
+                  },
+                },
+              });
+
+            if (latestProfileResult.errors?.length) {
+              throw new Error(
+                latestProfileResult.errors
+                  .map((error) => error.message)
+                  .join(", "),
+              );
+            }
+
+            currentProfile = latestProfileResult.data[0] ?? null;
+
+            if (!currentProfile) {
+              console.log(
+                "No owner profile found. Creating one from the approved partner request.",
+                latestAccessRequest,
+              );
+
+              const createProfileResult =
+                await client.models.ExperienceOwnerProfile.create({
+                  id: currentUser.userId,
+                  userId: currentUser.userId,
+                  name: latestAccessRequest.applicantName,
+                  email: latestAccessRequest.applicantEmail,
+                  phone: latestAccessRequest.applicantPhone || undefined,
+                });
+
+              if (
+                createProfileResult.errors?.length ||
+                !createProfileResult.data
+              ) {
+                const raceCheckResult =
+                  await client.models.ExperienceOwnerProfile.list({
+                    filter: {
+                      userId: {
+                        eq: currentUser.userId,
+                      },
+                    },
+                  });
+
+                if (raceCheckResult.errors?.length) {
+                  throw new Error(
+                    raceCheckResult.errors
+                      .map((error) => error.message)
+                      .join(", "),
+                  );
+                }
+
+                currentProfile = raceCheckResult.data[0] ?? null;
+
+                if (!currentProfile) {
+                  throw new Error(
+                    createProfileResult.errors
+                      ?.map((error) => error.message)
+                      .join(", ") ||
+                      "The approved owner profile could not be created.",
+                  );
+                }
+              } else {
+                currentProfile = createProfileResult.data;
+              }
+            }
+          } finally {
+            ownerProfileCreationInProgress.delete(currentUser.userId);
+          }
+        }
       }
 
       console.log("SIGNED-IN USER ID:", currentUser.userId);
@@ -601,13 +724,205 @@ function DashboardContent({
       setPartnerRequests(sortedPartnerRequests);
       setPartnerMessagesByRequest(partnerMessages);
 
-      console.log("ALL EXPERIENCES:", experienceResult.data);
+      let allExperiences = [...experienceResult.data];
+
+      /*
+       * First approved partner experience
+       *
+       * The partner request represents ONE initial experience only.
+       * Additional experiences are created later from the Owner Dashboard.
+       *
+       * This runs while the newly approved owner is signed in, after their
+       * ExperienceOwnerProfile has been created/loaded. If that profile does
+       * not yet own any experiences, create the initial experience from the
+       * approved OwnerAccessRequest.
+       *
+       * Using "no existing experiences for this profile" makes this safe to
+       * run again when the dashboard reloads without creating duplicates.
+       */
+      if (
+        currentProfile &&
+        !moderator &&
+        latestAccessRequest?.status === "APPROVED"
+      ) {
+        const initialExperienceType =
+          latestAccessRequest.experienceTypes?.[0]?.trim() ?? "";
+
+        const initialExperienceLocation =
+          latestAccessRequest.experienceLocation?.trim() ?? "";
+
+        const initialExperienceName = initialExperienceType;
+
+        const normalizedType = initialExperienceType.toLowerCase();
+        const normalizedLocation = initialExperienceLocation.toLowerCase();
+        const normalizedName = initialExperienceName.toLowerCase();
+
+        const existingInitialExperience = allExperiences.find(
+          (experience) =>
+            experience.ownerProfileId === currentProfile.id &&
+            (experience.experienceType?.trim().toLowerCase() ?? "") ===
+              normalizedType &&
+            experience.location.trim().toLowerCase() === normalizedLocation &&
+            experience.name.trim().toLowerCase() === normalizedName,
+        );
+
+        if (existingInitialExperience) {
+          console.log(
+            "Initial approved experience already exists. Skipping creation:",
+            existingInitialExperience,
+          );
+        } else if (
+          initialExperienceCreationInProgress.has(latestAccessRequest.id)
+        ) {
+          console.log(
+            "Initial experience creation is already in progress for this approved request. Skipping duplicate create.",
+            latestAccessRequest.id,
+          );
+        } else if (!initialExperienceType) {
+          console.warn(
+            "Approved partner request does not contain an experience type. The initial experience was not created.",
+          );
+        } else if (!initialExperienceLocation) {
+          console.warn(
+            "Approved partner request does not contain an experience location. The initial experience was not created.",
+          );
+        } else {
+          initialExperienceCreationInProgress.add(latestAccessRequest.id);
+
+          try {
+            /*
+             * Re-read this owner's experiences immediately before creating.
+             * This catches a record created by another dashboard load that
+             * completed after the original Experience.list() call.
+             */
+            const latestOwnerExperienceResult =
+              await client.models.Experience.list();
+
+            if (latestOwnerExperienceResult.errors?.length) {
+              throw new Error(
+                latestOwnerExperienceResult.errors
+                  .map((error) => error.message)
+                  .join(", "),
+              );
+            }
+
+            const duplicateFoundImmediatelyBeforeCreate =
+              latestOwnerExperienceResult.data.some(
+                (experience) =>
+                  experience.ownerProfileId === currentProfile.id &&
+                  (experience.experienceType?.trim().toLowerCase() ?? "") ===
+                    normalizedType &&
+                  experience.location.trim().toLowerCase() ===
+                    normalizedLocation &&
+                  experience.name.trim().toLowerCase() === normalizedName,
+              );
+
+            if (duplicateFoundImmediatelyBeforeCreate) {
+              console.log(
+                "Initial approved experience was created by another dashboard load. Skipping duplicate create.",
+              );
+
+              allExperiences = [...latestOwnerExperienceResult.data];
+            } else {
+              console.log(
+                "Creating the approved owner's initial experience from the partner request:",
+                {
+                  ownerProfileId: currentProfile.id,
+                  requestId: latestAccessRequest.id,
+                  name: initialExperienceName,
+                  experienceType: initialExperienceType,
+                  location: initialExperienceLocation,
+                  estimatedPrice:
+                    latestAccessRequest.estimatedPrice ?? undefined,
+                },
+              );
+
+              let publicExperienceImagePath: string | undefined;
+
+              try {
+                if (latestAccessRequest.experienceImageUrl) {
+                  console.log(
+                    "Copying approved partner image into public experience-images storage:",
+                    latestAccessRequest.experienceImageUrl,
+                  );
+
+                  publicExperienceImagePath =
+                    await copyPartnerImageToPublicExperienceImages(
+                      latestAccessRequest.experienceImageUrl,
+                    );
+
+                  console.log(
+                    "PUBLIC EXPERIENCE IMAGE CREATED:",
+                    publicExperienceImagePath,
+                  );
+                }
+
+                const createExperienceResult =
+                  await client.models.Experience.create({
+                    name: initialExperienceName,
+                    experienceType: initialExperienceType,
+                    location: initialExperienceLocation,
+                    description:
+                      latestAccessRequest.description?.trim() || undefined,
+                    estimatedPrice:
+                      latestAccessRequest.estimatedPrice ?? undefined,
+                    imageUrl: publicExperienceImagePath,
+                    ownerProfileId: currentProfile.id,
+                  });
+
+                if (
+                  createExperienceResult.errors?.length ||
+                  !createExperienceResult.data
+                ) {
+                  throw new Error(
+                    createExperienceResult.errors
+                      ?.map((error) => error.message)
+                      .join(", ") ||
+                      "The initial experience could not be created from the approved partner request.",
+                  );
+                }
+
+                allExperiences = [
+                  ...latestOwnerExperienceResult.data,
+                  createExperienceResult.data,
+                ];
+
+                console.log(
+                  "INITIAL EXPERIENCE CREATED:",
+                  createExperienceResult.data,
+                );
+              } catch (createInitialExperienceError) {
+                if (publicExperienceImagePath) {
+                  try {
+                    await remove({
+                      path: publicExperienceImagePath,
+                    });
+                  } catch (cleanupError) {
+                    console.error(
+                      "Initial experience creation failed and the copied public image could not be removed:",
+                      cleanupError,
+                    );
+                  }
+                }
+
+                throw createInitialExperienceError;
+              }
+            }
+          } finally {
+            initialExperienceCreationInProgress.delete(
+              latestAccessRequest.id,
+            );
+          }
+        }
+      }
+
+      console.log("ALL EXPERIENCES:", allExperiences);
       console.log("ALL BOOKINGS:", bookingResult.data);
       console.log("ALL CALENDAR EVENTS:", calendarResult.data);
       console.log("ALL BOOKING MESSAGES:", bookingMessageResult.data);
 
       if (currentProfile) {
-        const ownerExperiences = experienceResult.data.filter(
+        const ownerExperiences = allExperiences.filter(
           (experience) => experience.ownerProfileId === currentProfile.id,
         );
 
@@ -853,6 +1168,42 @@ function DashboardContent({
     return result.path;
   }
 
+  function resetExperienceForm() {
+    clearexperienceImage();
+    setexperienceName("");
+    setexperienceExperienceType("");
+    setexperienceLocation("");
+    setexperienceDescription("");
+    setexperiencePrice("");
+    setEditingExperience(null);
+    setShowAddexperienceForm(false);
+  }
+
+  function beginEditExperience(experience: Experience) {
+    clearexperienceImage();
+    setMessage("");
+    setEditingExperience(experience);
+    setexperienceName(experience.name);
+    setexperienceExperienceType(experience.experienceType ?? "");
+    setexperienceLocation(experience.location);
+    setexperienceDescription(experience.description ?? "");
+    setexperiencePrice(
+      experience.estimatedPrice != null
+        ? String(experience.estimatedPrice)
+        : "",
+    );
+    setShowAddexperienceForm(true);
+
+    window.setTimeout(() => {
+      document
+        .getElementById("owner-experience-form")
+        ?.scrollIntoView({
+          behavior: "smooth",
+          block: "start",
+        });
+    }, 50);
+  }
+
   async function addExperience(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -876,7 +1227,7 @@ function DashboardContent({
       return;
     }
 
-    if (!experienceImageFile) {
+    if (!editingExperience && !experienceImageFile) {
       setMessage("Please choose an experience image.");
       return;
     }
@@ -899,42 +1250,96 @@ function DashboardContent({
       setMessage("Uploading experience image...");
       setUploadProgress(0);
 
-      uploadedImagePath = await uploadexperienceImage(experienceImageFile);
-
-      setMessage("Saving experience information...");
-
-      const result = await client.models.Experience.create({
-        name: experienceName.trim(),
-        experienceType: experienceExperienceType.trim(),
-        location: experienceLocation.trim(),
-        description: experienceDescription.trim() || undefined,
-        estimatedPrice: numericPrice,
-        imageUrl: uploadedImagePath,
-        ownerProfileId: profile.id,
-      });
-
-      if (result.errors?.length) {
-        throw new Error(result.errors.map((error) => error.message).join(", "));
+      if (experienceImageFile) {
+        uploadedImagePath =
+          await uploadexperienceImage(experienceImageFile);
       }
 
-      if (!result.data) {
-        throw new Error("The experience was not created.");
+      setMessage(
+        editingExperience
+          ? "Updating experience information..."
+          : "Saving experience information...",
+      );
+
+      if (editingExperience) {
+        const previousImagePath = editingExperience.imageUrl ?? null;
+
+        const result = await client.models.Experience.update({
+          id: editingExperience.id,
+          name: experienceName.trim(),
+          experienceType: experienceExperienceType.trim(),
+          location: experienceLocation.trim(),
+          description: experienceDescription.trim() || undefined,
+          estimatedPrice: numericPrice,
+          imageUrl: uploadedImagePath ?? previousImagePath ?? undefined,
+        });
+
+        if (result.errors?.length) {
+          throw new Error(
+            result.errors.map((error) => error.message).join(", "),
+          );
+        }
+
+        if (!result.data) {
+          throw new Error("The experience was not updated.");
+        }
+
+        setexperiences((currentexperiences) =>
+          currentexperiences.map((experience) =>
+            experience.id === result.data?.id
+              ? result.data
+              : experience,
+          ),
+        );
+
+        if (
+          uploadedImagePath &&
+          previousImagePath &&
+          previousImagePath !== uploadedImagePath
+        ) {
+          try {
+            await remove({
+              path: previousImagePath,
+            });
+          } catch (imageCleanupError) {
+            console.error(
+              "Experience was updated, but the previous image could not be removed:",
+              imageCleanupError,
+            );
+          }
+        }
+
+        resetExperienceForm();
+        setMessage("Experience updated successfully.");
+      } else {
+        const result = await client.models.Experience.create({
+          name: experienceName.trim(),
+          experienceType: experienceExperienceType.trim(),
+          location: experienceLocation.trim(),
+          description: experienceDescription.trim() || undefined,
+          estimatedPrice: numericPrice,
+          imageUrl: uploadedImagePath ?? undefined,
+          ownerProfileId: profile.id,
+        });
+
+        if (result.errors?.length) {
+          throw new Error(
+            result.errors.map((error) => error.message).join(", "),
+          );
+        }
+
+        if (!result.data) {
+          throw new Error("The experience was not created.");
+        }
+
+        setexperiences((currentexperiences) => [
+          ...currentexperiences,
+          result.data,
+        ]);
+
+        resetExperienceForm();
+        setMessage("Experience added successfully.");
       }
-
-      setexperiences((currentexperiences) => [
-        ...currentexperiences,
-        result.data,
-      ]);
-
-      setexperienceName("");
-      setexperienceExperienceType("");
-      setexperienceLocation("");
-      setexperienceDescription("");
-      setexperiencePrice("");
-      clearexperienceImage();
-      setShowAddexperienceForm(false);
-
-      setMessage("Experience added successfully.");
     } catch (error) {
       console.error("Could not add experience:", error);
 
@@ -951,7 +1356,9 @@ function DashboardContent({
       setMessage(
         error instanceof Error
           ? error.message
-          : "Could not add the experience.",
+          : editingExperience
+            ? "Could not update the experience."
+            : "Could not add the experience.",
       );
     } finally {
       setIsSaving(false);
@@ -1868,7 +2275,8 @@ function DashboardContent({
         if (status === "ACCEPTED") {
           setMessage("Creating the secure Stripe payment session...");
 
-          await createCheckoutSession(request.booking.id);
+          const checkoutSession =
+            await createCheckoutSession(request.booking.id);
 
           const approvedMessageResult =
             await client.models.BookingMessage.create({
@@ -1911,8 +2319,35 @@ function DashboardContent({
             );
           }
 
+          let approvalEmailWarning = "";
+
+          try {
+            await sendBookingDecisionEmail({
+              customerName: request.booking.customerName,
+              customerEmail: request.booking.customerEmail,
+              experienceName: request.booking.experienceName,
+              location: request.booking.location,
+              appointmentDateTime:
+                request.booking.appointmentDateTime,
+              status: "ACCEPTED",
+              ownerName: profile.name,
+              ownerEmail: profile.email,
+              ownerPhone: profile.phone,
+              paymentUrl: checkoutSession.checkoutUrl,
+            });
+          } catch (emailError: unknown) {
+            console.error(
+              "The booking was approved, but the customer email notification could not be sent:",
+              emailError,
+            );
+
+            approvalEmailWarning =
+              " The booking was updated, but the customer email notification could not be sent.";
+          }
+
           setMessage(
-            `${request.booking.customerName}'s booking was approved and is awaiting payment. The customer can view the update in My Bookings.`,
+            `${request.booking.customerName}'s booking was approved and is awaiting payment. The customer can view the update in My Bookings.` +
+              approvalEmailWarning,
           );
         } else {
           const rejectedMessageResult =
@@ -1936,8 +2371,34 @@ function DashboardContent({
             );
           }
 
+          let rejectionEmailWarning = "";
+
+          try {
+            await sendBookingDecisionEmail({
+              customerName: request.booking.customerName,
+              customerEmail: request.booking.customerEmail,
+              experienceName: request.booking.experienceName,
+              location: request.booking.location,
+              appointmentDateTime:
+                request.booking.appointmentDateTime,
+              status: "REJECTED",
+              ownerName: profile.name,
+              ownerEmail: profile.email,
+              ownerPhone: profile.phone,
+            });
+          } catch (emailError: unknown) {
+            console.error(
+              "The booking was rejected, but the customer email notification could not be sent:",
+              emailError,
+            );
+
+            rejectionEmailWarning =
+              " The booking was updated, but the customer email notification could not be sent.";
+          }
+
           setMessage(
-            `${request.booking.customerName}'s booking was rejected. The customer can view the update in My Bookings.`,
+            `${request.booking.customerName}'s booking was rejected. The customer can view the update in My Bookings.` +
+              rejectionEmailWarning,
           );
         }
       } catch (notificationError: unknown) {
@@ -2066,6 +2527,25 @@ function DashboardContent({
         );
       }
 
+      let emailWarning = "";
+
+      try {
+        await sendPartnerDecisionEmail({
+          applicantName: request.applicantName,
+          applicantEmail: request.applicantEmail,
+          status,
+          moderatorNotes: request.moderatorNotes,
+        });
+      } catch (emailError: unknown) {
+        console.error(
+          "Partner request status was updated, but the EmailJS notification could not be sent:",
+          emailError,
+        );
+
+        emailWarning =
+          " The request was updated, but the email notification could not be sent.";
+      }
+
       const updatedPartnerRequest = requestResult.data;
       const createdDecisionMessage = messageResult.data;
 
@@ -2090,9 +2570,10 @@ function DashboardContent({
         ],
       }));
       setMessage(
-        status === "APPROVED"
+        (status === "APPROVED"
           ? `${request.applicantName}'s experience partner request was approved.`
-          : `${request.applicantName}'s experience partner request was rejected.`,
+          : `${request.applicantName}'s experience partner request was rejected.`) +
+          emailWarning,
       );
     } catch (error: unknown) {
       console.error("Could not update partner request:", error);
@@ -3041,6 +3522,7 @@ function DashboardContent({
                         <ExperienceImage
                           imagePath={experience.imageUrl}
                           experienceName={experience.name}
+                         className="experience-card-image" 
                         />
                       ) : (
                         <div className="experience-image-placeholder">
@@ -3078,10 +3560,57 @@ function DashboardContent({
                       )}
                     </div>
 
-                    <div className="experience-card-actions">
+                    <div
+                      className="experience-card-actions"
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 10,
+                        marginTop: 16,
+                      }}
+                    >
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        style={{
+                          flex: 1,
+                          minWidth: 0,
+                          height: 42,
+                          padding: "0 14px",
+                          borderRadius: 10,
+                          border: "1px solid #2563eb",
+                          background: "#2563eb",
+                          color: "#ffffff",
+                          fontWeight: 700,
+                          cursor: "pointer",
+                        }}
+                        onClick={() => {
+                          beginEditExperience(experience);
+                        }}
+                        disabled={isSaving}
+                        aria-label={`Edit ${experience.name}`}
+                      >
+                        Edit Experience
+                      </button>
+
                       <button
                         type="button"
                         className="delete-experience-button"
+                        style={{
+                          flex: 1,
+                          minWidth: 0,
+                          height: 42,
+                          padding: "0 14px",
+                          borderRadius: 10,
+                          border: "1px solid #dc2626",
+                          background: "#dc2626",
+                          color: "#ffffff",
+                          fontWeight: 700,
+                          cursor:
+                            deletingexperienceId === experience.id
+                              ? "not-allowed"
+                              : "pointer",
+                        }}
                         onClick={() => {
                           void deleteExperience(experience);
                         }}
@@ -3102,6 +3631,7 @@ function DashboardContent({
               <button
                 type="button"
                 onClick={() => {
+                  resetExperienceForm();
                   setMessage("");
                   setShowAddexperienceForm(true);
                 }}
@@ -3112,8 +3642,15 @@ function DashboardContent({
           </section>
 
           {showAddexperienceForm && (
-            <section className="dashboard-section">
-              <h2>Add Experience</h2>
+            <section
+              id="owner-experience-form"
+              className="dashboard-section"
+            >
+              <h2>
+                {editingExperience
+                  ? "Edit Experience"
+                  : "Add Experience"}
+              </h2>
 
               <form className="experience-form" onSubmit={addExperience}>
                 <div className="experience-form-grid">
@@ -3204,19 +3741,32 @@ function DashboardContent({
                       accept="image/*"
                       onChange={handleexperienceImageChange}
                       disabled={isSaving}
-                      required
+                      required={!editingExperience}
                     />
-                    <small>JPEG, PNG, WebP, or GIF. Maximum size: 10 MB.</small>
+                    <small>
+                      {editingExperience
+                        ? "Choose a new image only if you want to replace the current one. JPEG, PNG, WebP, or GIF. Maximum size: 10 MB."
+                        : "JPEG, PNG, WebP, or GIF. Maximum size: 10 MB."}
+                    </small>
                   </div>
                 </div>
 
-                {experienceImagePreview && (
+                {experienceImagePreview ? (
                   <div className="experience-image-preview">
                     <img
                       src={experienceImagePreview}
                       alt="Selected experience preview"
                     />
                   </div>
+                ) : (
+                  editingExperience?.imageUrl && (
+                    <div className="experience-image-preview">
+                      <ExperienceImage
+                        imagePath={editingExperience.imageUrl}
+                        experienceName={editingExperience.name}
+                      />
+                    </div>
+                  )
                 )}
 
                 {isSaving && uploadProgress > 0 && (
@@ -3235,14 +3785,8 @@ function DashboardContent({
                     className="secondary-button"
                     disabled={isSaving}
                     onClick={() => {
-                      clearexperienceImage();
-                      setexperienceName("");
-                      setexperienceExperienceType("");
-                      setexperienceLocation("");
-                      setexperienceDescription("");
-                      setexperiencePrice("");
+                      resetExperienceForm();
                       setMessage("");
-                      setShowAddexperienceForm(false);
                     }}
                   >
                     Cancel
@@ -3253,7 +3797,13 @@ function DashboardContent({
                     className="primary-button"
                     disabled={isSaving}
                   >
-                    {isSaving ? "Saving..." : "Save Experience"}
+                    {isSaving
+                      ? editingExperience
+                        ? "Saving Changes..."
+                        : "Saving..."
+                      : editingExperience
+                        ? "Save Changes"
+                        : "Save Experience"}
                   </button>
                 </div>
               </form>

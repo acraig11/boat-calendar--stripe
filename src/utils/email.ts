@@ -166,7 +166,8 @@ export async function sendBookingDecisionEmail({
   if (approved) {
     messageLines.push(
       "",
-      "Your booking request has been approved, and we are awaiting payment.",
+      "Your booking request has been approved.",
+      "You can complete payment using the secure payment link in this email, or you can sign in to Coast Life and open your User Dashboard to finish the booking in the app.",
       "Your booking will be confirmed once payment is received.",
     );
 
@@ -178,7 +179,12 @@ export async function sendBookingDecisionEmail({
       );
     }
 
-    messageLines.push("", "Experience Owner Contact:");
+    messageLines.push(
+      "",
+      "Prefer to pay in the app? Sign in to Coast Life, open your User Dashboard, and view your booking messages.",
+      "",
+      "Experience Owner Contact:",
+    );
 
     if (ownerName?.trim()) {
       messageLines.push(`Name: ${ownerName.trim()}`);
@@ -204,16 +210,21 @@ export async function sendBookingDecisionEmail({
   }
 
   const message = messageLines.join("\n");
-
+const ccRecipients = [
+  ownerEmail?.trim(),
+  "alan_craig@msn.com",
+]
+  .filter(Boolean)
+  .join(",");
   const result = await emailjs.send(
     EMAILJS_SERVICE_ID,
     EMAILJS_TEMPLATE_ID,
     {
       subject,
       message,
-
-      to_email: recipientEmail,
-      cc_email: "alan_craig@msn.com",
+    to_email: recipientEmail,
+    cc_email: ccRecipients,
+      
 
       customer_name: customerName.trim(),
       customer_email: recipientEmail,
@@ -379,6 +390,183 @@ export async function sendPartnerRequestEmail({
   );
 
   console.log("EmailJS partner result:", result);
+
+  if (result.status !== 200) {
+    throw new Error(
+      `EmailJS failed. Status: ${result.status}, Text: ${result.text}`,
+    );
+  }
+
+  return result;
+}
+
+
+
+export async function sendExperiencePartnerRequestSubmittedEmail({
+  applicantName,
+  applicantEmail,
+  applicantPhone,
+  businessName,
+  experienceType,
+  experienceLocation,
+  estimatedPrice,
+  description,
+}: {
+  applicantName: string;
+  applicantEmail: string;
+  applicantPhone?: string | null;
+  businessName?: string | null;
+  experienceType: string;
+  experienceLocation: string;
+  estimatedPrice?: number | null;
+  description?: string | null;
+}) {
+  if (!EMAILJS_SERVICE_ID || !EMAILJS_TEMPLATE_ID || !EMAILJS_PUBLIC_KEY) {
+    throw new Error("EmailJS configuration is missing. Check your .env file.");
+  }
+
+  const subject = "New Coast Life Experience Partner Request";
+
+  const formattedPrice =
+    estimatedPrice != null
+      ? new Intl.NumberFormat("en-US", {
+          style: "currency",
+          currency: "USD",
+        }).format(estimatedPrice)
+      : "Not set";
+
+  const message = [
+    "A new experience partner request has been submitted.",
+    "",
+    `Applicant: ${applicantName.trim() || "Not set"}`,
+    `Email: ${applicantEmail.trim() || "Not set"}`,
+    `Phone: ${applicantPhone?.trim() || "Not set"}`,
+    `Business: ${businessName?.trim() || "Not set"}`,
+    "",
+    `Experience Type: ${experienceType || "Not set"}`,
+    `Location: ${experienceLocation || "Not set"}`,
+    `Estimated Price: ${formattedPrice}`,
+    "",
+    "Description:",
+    description?.trim() || "Not provided",
+    "",
+    "Sign in to the Coast Life moderator dashboard to review this request.",
+  ].join("\n");
+
+  const result = await emailjs.send(
+    EMAILJS_SERVICE_ID,
+    EMAILJS_TEMPLATE_ID,
+    {
+      subject,
+      message,
+      to_email: "alan_craig@msn.com",
+      cc_email: "",
+      customer_name: applicantName.trim(),
+      customer_email: applicantEmail.trim(),
+      customer_phone: applicantPhone?.trim() ?? "",
+      organization: businessName?.trim() ?? "",
+      experience_name: experienceType,
+      location: experienceLocation,
+      estimated_price: formattedPrice,
+      note: description?.trim() ?? "",
+    },
+    {
+      publicKey: EMAILJS_PUBLIC_KEY,
+    },
+  );
+
+  console.log("EmailJS experience partner request result:", result);
+
+  if (result.status !== 200) {
+    throw new Error(
+      `EmailJS failed. Status: ${result.status}, Text: ${result.text}`,
+    );
+  }
+
+  return result;
+}
+
+export type PartnerDecisionStatus = "APPROVED" | "REJECTED";
+
+export async function sendPartnerDecisionEmail({
+  applicantName,
+  applicantEmail,
+  status,
+  moderatorNotes,
+}: {
+  applicantName: string;
+  applicantEmail: string;
+  status: PartnerDecisionStatus;
+  moderatorNotes?: string | null;
+}) {
+  if (!EMAILJS_SERVICE_ID || !EMAILJS_TEMPLATE_ID || !EMAILJS_PUBLIC_KEY) {
+    throw new Error("EmailJS configuration is missing. Check your .env file.");
+  }
+
+  const recipientEmail = applicantEmail.trim();
+
+  if (!recipientEmail) {
+    throw new Error("The applicant's email address was not found.");
+  }
+
+  const approved = status === "APPROVED";
+
+  const subject = approved
+    ? "Your Coast Life Experience Partner Request Was Approved"
+    : "Your Coast Life Experience Partner Request Was Not Approved";
+
+  const messageLines = [
+    `Hello ${applicantName.trim() || "Applicant"},`,
+    "",
+    approved
+      ? "Congratulations! Your request to offer experiences with Coast Life has been approved."
+      : "Thank you for your interest in offering experiences with Coast Life. Your request was not approved at this time.",
+    "",
+  ];
+
+  if (approved) {
+    messageLines.push(
+      "You can now sign in to Coast Life and open the Experience Owner Dashboard.",
+      "Your initial experience will be created from the information in your approved partner request.",
+      "You can edit that experience or add additional experiences from the Owner Dashboard.",
+    );
+  } else {
+    if (moderatorNotes?.trim()) {
+      messageLines.push(
+        "Moderator notes:",
+        moderatorNotes.trim(),
+        "",
+      );
+    }
+
+    messageLines.push(
+      "You may contact Coast Life if you have questions about the decision.",
+    );
+  }
+
+  messageLines.push("", "Coast Life");
+
+  const message = messageLines.join("\n");
+
+  const result = await emailjs.send(
+    EMAILJS_SERVICE_ID,
+    EMAILJS_TEMPLATE_ID,
+    {
+      subject,
+      message,
+      to_email: recipientEmail,
+      cc_email: "alan_craig@msn.com",
+      customer_name: applicantName.trim(),
+      customer_email: recipientEmail,
+      partner_status: status,
+      moderator_notes: moderatorNotes?.trim() ?? "",
+    },
+    {
+      publicKey: EMAILJS_PUBLIC_KEY,
+    },
+  );
+
+  console.log("EmailJS partner decision result:", result);
 
   if (result.status !== 200) {
     throw new Error(

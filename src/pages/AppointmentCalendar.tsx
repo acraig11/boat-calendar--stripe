@@ -7,6 +7,10 @@ import "./AppointmentCalendar.css";
 import { getCurrentUser } from "aws-amplify/auth";
 import { getUrl } from "aws-amplify/storage";
 import { client } from "../lib/amplifyClient";
+import {
+  sendBookingEmailWithAppointment,
+  sendBookingPendingEmail,
+} from "../utils/email";
 
 type Experience = {
   id: string;
@@ -486,10 +490,18 @@ function AppointmentCalendarContent() {
       }
 
       const ownerUserId = ownerProfileResult.data?.userId?.trim();
+      const experienceOwnerEmail =
+        ownerProfileResult.data?.email?.trim();
 
       if (!ownerUserId) {
         throw new Error(
           "The experience owner's account ID could not be found.",
+        );
+      }
+
+      if (!experienceOwnerEmail) {
+        throw new Error(
+          "The experience owner's email address could not be found.",
         );
       }
 
@@ -600,6 +612,56 @@ function AppointmentCalendarContent() {
         console.error(
           "The booking was created, but its initial status message could not be created:",
           messageError,
+        );
+      }
+
+      /*
+       * Email notifications are intentionally sent after the booking,
+       * calendar event, and in-app status message are saved. An EmailJS
+       * problem should not cause an otherwise valid booking request to fail.
+       */
+      try {
+        await sendBookingEmailWithAppointment(
+          appointmentDateTime,
+          {
+            firstName: customerProfile.firstName ?? undefined,
+            lastName: customerProfile.lastName ?? undefined,
+            phoneNumber: customerProfile.phoneNumber ?? undefined,
+            ownerEmail: customerEmail,
+          },
+          selectedExperience.name,
+          selectedExperience.location,
+          experienceOwnerEmail,
+        );
+
+        console.log(
+          "Booking request email sent to experience owner:",
+          experienceOwnerEmail,
+        );
+      } catch (ownerEmailError: unknown) {
+        console.error(
+          "The booking was created, but the experience owner email notification failed:",
+          ownerEmailError,
+        );
+      }
+
+      try {
+        await sendBookingPendingEmail({
+          customerName,
+          customerEmail,
+          experienceName: selectedExperience.name,
+          location: selectedExperience.location,
+          appointmentDateTime: appointmentDateTime.toISOString(),
+        });
+
+        console.log(
+          "Pending booking confirmation email sent to customer:",
+          customerEmail,
+        );
+      } catch (customerEmailError: unknown) {
+        console.error(
+          "The booking was created, but the customer pending email notification failed:",
+          customerEmailError,
         );
       }
 

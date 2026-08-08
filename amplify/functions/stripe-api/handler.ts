@@ -49,11 +49,14 @@ type BookingRecord = {
   stripePaymentIntentId?: string;
   paymentExpiresAt?: string;
   paidAt?: string;
+  paymentConfirmationEmailSent?: boolean;
 };
 
 type OwnerProfileRecord = {
   id: string;
   userId?: string;
+  name?: string;
+  email?: string;
 };
 
 const dynamoDb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
@@ -144,6 +147,197 @@ async function getBooking(bookingId: string): Promise<BookingRecord | null> {
   );
 
   return (result.Item as BookingRecord | undefined) ?? null;
+}
+
+async function getOwnerProfileById(
+  ownerProfileId: string | undefined,
+): Promise<OwnerProfileRecord | null> {
+  if (!ownerProfileId) {
+    return null;
+  }
+
+  const result = await dynamoDb.send(
+    new GetCommand({
+      TableName: env.OWNER_PROFILE_TABLE_NAME,
+      Key: { id: ownerProfileId },
+    }),
+  );
+
+  return (result.Item as OwnerProfileRecord | undefined) ?? null;
+}
+
+function formatPaymentEmailDateTime(value?: string) {
+  if (!value) {
+    return {
+      appointmentDate: "Not set",
+      appointmentTime: "Not set",
+    };
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return {
+      appointmentDate: value,
+      appointmentTime: "Not set",
+    };
+  }
+
+  return {
+    appointmentDate: date.toLocaleDateString("en-US", {
+      weekday: "short",
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    }),
+    appointmentTime: date.toLocaleTimeString("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+    }),
+  };
+}
+
+async function sendPaymentReceivedEmail(
+  booking: BookingRecord,
+  session: Stripe.Checkout.Session,
+): Promise<void> {
+  if (booking.paymentConfirmationEmailSent) {
+    console.log(
+      `Payment confirmation email already sent for Booking ${booking.id}.`,
+    );
+    return;
+  }
+
+  const serviceId = process.env.EMAILJS_SERVICE_ID?.trim();
+  const templateId = process.env.EMAILJS_TEMPLATE_ID?.trim();
+  const publicKey = process.env.EMAILJS_PUBLIC_KEY?.trim();
+
+  if (!serviceId || !templateId || !publicKey) {
+    console.error(
+      "Payment was received, but EmailJS is not configured for the Stripe API Lambda.",
+    );
+    return;
+  }
+
+  const customerEmail = booking.customerEmail?.trim();
+
+  if (!customerEmail) {
+    console.error(
+      `Payment was received for Booking ${booking.id}, but no customer email is available.`,
+    );
+    return;
+  }
+
+  const ownerProfile = await getOwnerProfileById(
+    booking.ownerProfileId,
+  );
+
+  const ownerEmail = ownerProfile?.email?.trim();
+  const moderatorEmail =
+    process.env.COASTLIFE_MODERATOR_EMAIL?.trim() ||
+    "alan_craig@msn.com";
+
+  const ccRecipients = [ownerEmail, moderatorEmail]
+    .filter((email): email is string => Boolean(email))
+    .filter(
+      (email, index, all) =>
+        all.findIndex(
+          (candidate) =>
+            candidate.toLowerCase() === email.toLowerCase(),
+        ) === index,
+    )
+    .join(",");
+
+  const { appointmentDate, appointmentTime } =
+    formatPaymentEmailDateTime(
+      booking.appointmentDateTime,
+    );
+
+  const paidAmountInCents =
+    session.amount_total ?? booking.amountInCents ?? 0;
+
+  const amountPaid = new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: (session.currency ?? "usd").toUpperCase(),
+  }).format(paidAmountInCents / 100);
+
+  const subject =
+    "Your Coast Life Booking Payment Was Received";
+
+  const message = [
+    `Hello ${booking.customerName?.trim() || "Customer"},`,
+    "",
+    "Your payment has been received and your Coast Life booking is confirmed.",
+    "",
+    `Experience: ${booking.experienceName ?? "Not set"}`,
+    `Location: ${booking.location ?? "Not set"}`,
+    `Appointment Date: ${appointmentDate}`,
+    `Appointment Time: ${appointmentTime}`,
+    `Amount Paid: ${amountPaid}`,
+    "",
+    "You can sign in to Coast Life and open your User Dashboard to view your confirmed booking and messages.",
+    "",
+    "Thank you for booking with Coast Life.",
+  ].join("\n");
+
+  const response = await fetch(
+    "https://api.emailjs.com/api/v1.0/email/send",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        service_id: serviceId,
+        template_id: templateId,
+        user_id: publicKey,
+        template_params: {
+          subject,
+          message,
+          to_email: customerEmail,
+          cc_email: ccRecipients,
+          customer_name:
+            booking.customerName?.trim() ?? "",
+          customer_email: customerEmail,
+          experience_name:
+            booking.experienceName ?? "",
+          location: booking.location ?? "",
+          appointment_date: appointmentDate,
+          appointment_time: appointmentTime,
+          booking_status: "PAID",
+          payment_status: "PAID",
+          amount_paid: amountPaid,
+          owner_name: ownerProfile?.name?.trim() ?? "",
+          owner_email: ownerEmail ?? "",
+        },
+      }),
+    },
+  );
+
+  const responseText = await response.text();
+
+  if (!response.ok) {
+    console.error(
+      `EmailJS payment confirmation failed (${response.status}): ${responseText}`,
+    );
+    return;
+  }
+
+  await dynamoDb.send(
+    new UpdateCommand({
+      TableName: env.BOOKING_TABLE_NAME,
+      Key: { id: booking.id },
+      UpdateExpression:
+        "SET paymentConfirmationEmailSent = :sent",
+      ExpressionAttributeValues: {
+        ":sent": true,
+      },
+    }),
+  );
+
+  console.log(
+    `Payment confirmation email sent for Booking ${booking.id}.`,
+  );
 }
 
 async function validateBookingForOwner(event: ApiGatewayEvent): Promise<
@@ -772,7 +966,16 @@ async function handleStripeWebhook(
       case "checkout.session.async_payment_succeeded": {
         const session = stripeEvent.data.object as Stripe.Checkout.Session;
 
-        await markBookingPaid(session);
+        const paidBooking =
+          await markBookingPaid(session);
+
+        if (paidBooking) {
+          await sendPaymentReceivedEmail(
+            paidBooking,
+            session,
+          );
+        }
+
         break;
       }
 

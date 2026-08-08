@@ -9,6 +9,7 @@ import "@aws-amplify/ui-react/styles.css";
 import { getCurrentUser } from "aws-amplify/auth";
 import { remove, uploadData } from "aws-amplify/storage";
 import { client } from "../lib/amplifyClient";
+import { sendExperiencePartnerRequestSubmittedEmail } from "../utils/email";
 import "./OfferExperiences.css";
 
 const EXPERIENCE_TYPES = [
@@ -50,6 +51,8 @@ function OfferExperiencesContent() {
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [businessName, setBusinessName] = useState("");
+  const [experienceLocation, setExperienceLocation] = useState("");
+  const [estimatedPrice, setEstimatedPrice] = useState("");
   const [description, setDescription] = useState("");
   const [selectedExperienceTypes, setSelectedExperienceTypes] =
     useState<string[]>([]);
@@ -259,6 +262,22 @@ function OfferExperiencesContent() {
       return;
     }
 
+    if (!experienceLocation.trim()) {
+      setMessage("Enter the location where you plan to offer the experience.");
+      return;
+    }
+
+    const numericEstimatedPrice = Number(estimatedPrice);
+
+    if (
+      !estimatedPrice.trim() ||
+      !Number.isFinite(numericEstimatedPrice) ||
+      numericEstimatedPrice < 0
+    ) {
+      setMessage("Enter a valid estimated price.");
+      return;
+    }
+
     if (selectedExperienceTypes.length === 0) {
       setMessage(
         "Select at least one type of experience.",
@@ -297,6 +316,8 @@ function OfferExperiencesContent() {
           applicantPhone: phone.trim() || undefined,
           businessName:
             businessName.trim() || undefined,
+          experienceLocation: experienceLocation.trim(),
+          estimatedPrice: numericEstimatedPrice,
           experienceTypes: selectedExperienceTypes,
           description: description.trim() || undefined,
           experienceImageUrl: uploadedImagePath,
@@ -344,9 +365,33 @@ function OfferExperiencesContent() {
         );
       }
 
+      let emailWarning = "";
+
+      try {
+        await sendExperiencePartnerRequestSubmittedEmail({
+          applicantName: name.trim(),
+          applicantEmail: email.trim(),
+          applicantPhone: phone.trim() || undefined,
+          businessName: businessName.trim() || undefined,
+          experienceType: selectedExperienceTypes[0] ?? "Not set",
+          experienceLocation: experienceLocation.trim(),
+          estimatedPrice: numericEstimatedPrice,
+          description: description.trim() || undefined,
+        });
+      } catch (emailError: unknown) {
+        console.error(
+          "The partner request was submitted, but the Coast Life email notification could not be sent:",
+          emailError,
+        );
+
+        emailWarning =
+          " Your request was saved, but the Coast Life email notification could not be sent.";
+      }
+
       setExistingRequest(createdRequest);
       setMessage(
-        "Your request to offer experiences was submitted successfully.",
+        "Your request to offer experiences was submitted successfully." +
+          emailWarning,
       );
       clearExperienceImage();
     } catch (error: unknown) {
@@ -489,6 +534,35 @@ function OfferExperiencesContent() {
                   setBusinessName(event.target.value)
                 }
                 placeholder="Optional"
+              />
+            </label>
+          </div>
+
+          <div className="offer-form-grid">
+            <label className="offer-form-field">
+              Experience location
+              <input
+                value={experienceLocation}
+                onChange={(event) =>
+                  setExperienceLocation(event.target.value)
+                }
+                placeholder="City, state, marina, course, beach, or service area"
+                required
+              />
+            </label>
+
+            <label className="offer-form-field">
+              Estimated price
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={estimatedPrice}
+                onChange={(event) =>
+                  setEstimatedPrice(event.target.value)
+                }
+                placeholder="150.00"
+                required
               />
             </label>
           </div>
