@@ -13,6 +13,6 @@ export const stripeApiFunction = defineFunction({
     EMAILJS_TEMPLATE_ID: secret("EMAILJS_TEMPLATE_ID"),
     EMAILJS_PUBLIC_KEY: secret("EMAILJS_PUBLIC_KEY"),
 
-    APP_URL: "http://localhost:5173",
+    APP_URL: "https://boat-calendar-stripe.onrender.com",
   },
 });
