@@ -313,10 +313,8 @@ function PartnerRequestImage({
 }
 
 function DashboardContent({
-  signOut,
   userEmail,
 }: {
-  signOut?: () => void;
   userEmail: string;
 }) {
   const navigate = useNavigate();
@@ -2668,11 +2666,6 @@ function DashboardContent({
             <p>Signed in as {userEmail}</p>
           </div>
 
-          <div className="owner-dashboard-header-actions">
-            <button type="button" onClick={signOut}>
-              Sign Out
-            </button>
-          </div>
         </header>
 
         <section className="dashboard-section">
@@ -2724,13 +2717,6 @@ function DashboardContent({
           <small>Dashboard version: Pending List 2026-07-31</small>
         </div>
 
-        <div className="owner-dashboard-header-actions">
-         
-
-          <button type="button" onClick={signOut}>
-            Sign Out
-          </button>
-        </div>
       </header>
 
       {message && <p className="dashboard-message">{message}</p>}
@@ -4485,9 +4471,8 @@ function DashboardContent({
 export default function OwnerDashboard() {
   return (
     <Authenticator>
-      {({ signOut, user }) => (
+      {({ user }) => (
         <DashboardContent
-          signOut={signOut}
           userEmail={user?.signInDetails?.loginId ?? "Signed-in owner"}
         />
       )}
