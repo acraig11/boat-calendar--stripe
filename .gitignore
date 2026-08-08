@@ -27,3 +27,8 @@ dist-ssr
 .amplify
 amplify_outputs*
 amplifyconfiguration*
+
+# Environment variables / secrets
+.env
+.env.*
+!.env.example
