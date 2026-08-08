@@ -25,7 +25,7 @@ dist-ssr
 
 # amplify
 .amplify
-amplify_outputs*
+#amplify_outputs*
 amplifyconfiguration*
 
 # Environment variables / secrets
