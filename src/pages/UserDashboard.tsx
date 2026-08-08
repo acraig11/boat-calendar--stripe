@@ -2697,7 +2697,9 @@ function AuthenticatedUserDashboard() {
               </strong>
             </div>
 
-           
+            <button type="button" onClick={signOut}>
+              Sign Out
+            </button>
           </header>
 
           <UserDashboard />
