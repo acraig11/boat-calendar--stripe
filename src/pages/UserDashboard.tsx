@@ -2677,7 +2677,7 @@ const styles = {
 function AuthenticatedUserDashboard() {
   return (
     <Authenticator>
-      {({ signOut, user }) => (
+      {({  user }) => (
         <>
           <header
             style={{
@@ -2697,9 +2697,7 @@ function AuthenticatedUserDashboard() {
               </strong>
             </div>
 
-            <button type="button" onClick={signOut}>
-              Sign Out
-            </button>
+            
           </header>
 
           <UserDashboard />
