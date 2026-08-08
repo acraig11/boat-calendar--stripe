@@ -251,52 +251,16 @@ function FreeMerch() {
   }
 
   if (!isLoggedIn) {
+    navigate("/login", {
+      replace: true,
+      state: {
+        returnTo: "/freeMerchandise",
+      },
+    });
+
     return (
-      <main
-        style={{
-          minHeight: "100vh",
-          display: "flex",
-          justifyContent: "center",
-          alignItems: "center",
-          background: "#f8fafc",
-          padding: "20px",
-        }}
-      >
-        <div
-          style={{
-            background: "white",
-            padding: "32px",
-            borderRadius: "20px",
-            boxShadow: "0 8px 20px rgba(0,0,0,.12)",
-            maxWidth: "420px",
-            width: "100%",
-            textAlign: "center",
-          }}
-        >
-          <h1 style={{ marginTop: 0 }}>🎁 Coast Life Rewards</h1>
-
-          <p style={{ color: "#6b7280", fontSize: "17px" }}>
-            Please log in to view your rewards and earn merchandise points.
-          </p>
-
-          <button
-            onClick={() => navigate("/login")}
-            style={{
-              marginTop: "18px",
-              width: "100%",
-              padding: "14px",
-              border: "none",
-              borderRadius: "12px",
-              background: "#14b8a6",
-              color: "white",
-              fontSize: "16px",
-              fontWeight: 600,
-              cursor: "pointer",
-            }}
-          >
-            Go To Login
-          </button>
-        </div>
+      <main style={{ padding: "20px", textAlign: "center" }}>
+        Redirecting to login...
       </main>
     );
   }

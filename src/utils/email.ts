@@ -223,7 +223,7 @@ const ccRecipients = [
       subject,
       message,
     to_email: recipientEmail,
-    cc_email: ccRecipients,
+    
       
 
       customer_name: customerName.trim(),
