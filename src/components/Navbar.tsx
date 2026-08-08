@@ -4,7 +4,7 @@ import { getCurrentUser, signOut } from "aws-amplify/auth";
 import { Hub } from "aws-amplify/utils";
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "../../amplify/data/resource";
-import "./Navbar.css";
+import "./navbar.css";
 const client = generateClient<Schema>();
 
 const MODERATOR_USER_ID =
