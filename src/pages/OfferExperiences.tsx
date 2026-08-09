@@ -77,28 +77,72 @@ function OfferExperiencesContent() {
       try {
         const currentUser = await getCurrentUser();
 
-        const result =
-          await client.models.OwnerAccessRequest.list();
+        const [requestResult, profileResult] =
+          await Promise.all([
+            client.models.OwnerAccessRequest.list(),
+            client.models.UserProfile.list({
+              filter: {
+                userId: {
+                  eq: currentUser.userId,
+                },
+              },
+            }),
+          ]);
 
-        if (result.errors?.length) {
+        if (requestResult.errors?.length) {
           throw new Error(
-            result.errors
+            requestResult.errors
+              .map((error) => error.message)
+              .join(", "),
+          );
+        }
+
+        if (profileResult.errors?.length) {
+          throw new Error(
+            profileResult.errors
               .map((error) => error.message)
               .join(", "),
           );
         }
 
         const request =
-          result.data.find(
+          requestResult.data.find(
             (item) =>
               item.applicantUserId === currentUser.userId,
           ) ?? null;
 
+        const userProfile =
+          [...profileResult.data]
+            .filter(
+              (record) =>
+                record.firstName ||
+                record.lastName ||
+                record.ownerEmail ||
+                record.phoneNumber,
+            )
+            .sort(
+              (first, second) =>
+                new Date(second.updatedAt).getTime() -
+                new Date(first.updatedAt).getTime(),
+            )[0] ?? null;
+
         if (active) {
           setExistingRequest(request);
-          setEmail(
-            currentUser.signInDetails?.loginId ?? "",
+
+          setName(
+            [userProfile?.firstName, userProfile?.lastName]
+              .filter(Boolean)
+              .join(" ")
+              .trim(),
           );
+
+          setEmail(
+            userProfile?.ownerEmail?.trim() ||
+              currentUser.signInDetails?.loginId ||
+              "",
+          );
+
+          setPhone(userProfile?.phoneNumber?.trim() || "");
         }
       } catch (error: unknown) {
         console.error(
