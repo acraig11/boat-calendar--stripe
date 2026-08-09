@@ -417,11 +417,19 @@ function AppointmentCalendarContent() {
       }
 
       const customerProfile =
-        [...profileResult.data].sort(
-          (first, second) =>
-            new Date(second.updatedAt).getTime() -
-            new Date(first.updatedAt).getTime(),
-        )[0] ?? null;
+  [...profileResult.data]
+    .filter(
+      (record) =>
+        record.firstName ||
+        record.lastName ||
+        record.ownerEmail ||
+        record.phoneNumber,
+    )
+    .sort(
+      (first, second) =>
+        new Date(second.updatedAt).getTime() -
+        new Date(first.updatedAt).getTime(),
+    )[0] ?? null;
 
       if (!customerProfile) {
         throw new Error(
