@@ -35,106 +35,85 @@ const stripeRestApi = new RestApi(apiStack, "StripeRestApi", {
   },
 });
 
-const stripeLambda =
-  backend.stripeApiFunction.resources.lambda;
-const stripeFunctionIntegration =
-  new LambdaIntegration(stripeLambda);
+const stripeLambda = backend.stripeApiFunction.resources.lambda;
+const stripeFunctionIntegration = new LambdaIntegration(stripeLambda);
 
-const cognitoAuthorizer =
-  new CognitoUserPoolsAuthorizer(
-    apiStack,
-    "StripeApiCognitoAuthorizer",
-    {
-      cognitoUserPools: [
-        backend.auth.resources.userPool,
-      ],
-    },
-  );
-
-const stripeTestPath =
-  stripeRestApi.root.addResource("stripe-test");
-stripeTestPath.addMethod(
-  "GET",
-  stripeFunctionIntegration,
+const cognitoAuthorizer = new CognitoUserPoolsAuthorizer(
+  apiStack,
+  "StripeApiCognitoAuthorizer",
   {
-    authorizationType: AuthorizationType.COGNITO,
-    authorizer: cognitoAuthorizer,
+    cognitoUserPools: [backend.auth.resources.userPool],
   },
 );
 
-const bookingPaymentDetailsPath =
-  stripeRestApi.root.addResource(
-    "booking-payment-details",
-  );
-bookingPaymentDetailsPath.addMethod(
-  "POST",
-  stripeFunctionIntegration,
-  {
-    authorizationType: AuthorizationType.COGNITO,
-    authorizer: cognitoAuthorizer,
-  },
-);
+const stripeTestPath = stripeRestApi.root.addResource("stripe-test");
+stripeTestPath.addMethod("GET", stripeFunctionIntegration, {
+  authorizationType: AuthorizationType.COGNITO,
+  authorizer: cognitoAuthorizer,
+});
 
-const createCheckoutSessionPath =
-  stripeRestApi.root.addResource(
-    "create-checkout-session",
-  );
-createCheckoutSessionPath.addMethod(
-  "POST",
-  stripeFunctionIntegration,
-  {
-    authorizationType: AuthorizationType.COGNITO,
-    authorizer: cognitoAuthorizer,
-  },
+const bookingPaymentDetailsPath = stripeRestApi.root.addResource(
+  "booking-payment-details",
 );
+bookingPaymentDetailsPath.addMethod("POST", stripeFunctionIntegration, {
+  authorizationType: AuthorizationType.COGNITO,
+  authorizer: cognitoAuthorizer,
+});
+
+const createCheckoutSessionPath = stripeRestApi.root.addResource(
+  "create-checkout-session",
+);
+createCheckoutSessionPath.addMethod("POST", stripeFunctionIntegration, {
+  authorizationType: AuthorizationType.COGNITO,
+  authorizer: cognitoAuthorizer,
+});
 
 // Customer-facing Checkout route used by My Bookings.
-const customerCreateCheckoutSessionPath =
-  stripeRestApi.root.addResource(
-    "customer-create-checkout-session",
-  );
-customerCreateCheckoutSessionPath.addMethod(
-  "POST",
-  stripeFunctionIntegration,
-  {
-    authorizationType: AuthorizationType.COGNITO,
-    authorizer: cognitoAuthorizer,
-  },
+const customerCreateCheckoutSessionPath = stripeRestApi.root.addResource(
+  "customer-create-checkout-session",
 );
+customerCreateCheckoutSessionPath.addMethod("POST", stripeFunctionIntegration, {
+  authorizationType: AuthorizationType.COGNITO,
+  authorizer: cognitoAuthorizer,
+});
+
+// iOS PaymentSheet route.
+const iosCreatePaymentIntentPath = stripeRestApi.root.addResource(
+  "ios-create-payment-intent",
+);
+iosCreatePaymentIntentPath.addMethod("POST", stripeFunctionIntegration, {
+  authorizationType: AuthorizationType.COGNITO,
+  authorizer: cognitoAuthorizer,
+});
+
+// iOS payment confirmation route.
+// After PaymentSheet reports completion, the signed-in customer calls this route.
+// Lambda then retrieves the PaymentIntent directly from Stripe, verifies that it
+// succeeded, and marks the Booking PAID.
+const iosConfirmPaymentPath = stripeRestApi.root.addResource(
+  "ios-confirm-payment",
+);
+iosConfirmPaymentPath.addMethod("POST", stripeFunctionIntegration, {
+  authorizationType: AuthorizationType.COGNITO,
+  authorizer: cognitoAuthorizer,
+});
 
 // Stripe calls this route directly, so it must not require Cognito.
-const stripeWebhookPath =
-  stripeRestApi.root.addResource("stripe-webhook");
-stripeWebhookPath.addMethod(
-  "POST",
-  stripeFunctionIntegration,
-  {
-    authorizationType: AuthorizationType.NONE,
-  },
+const stripeWebhookPath = stripeRestApi.root.addResource("stripe-webhook");
+stripeWebhookPath.addMethod("POST", stripeFunctionIntegration, {
+  authorizationType: AuthorizationType.NONE,
+});
+
+const paymentSuccessDetailsPath = stripeRestApi.root.addResource(
+  "payment-success-details",
 );
+paymentSuccessDetailsPath.addMethod("GET", stripeFunctionIntegration, {
+  authorizationType: AuthorizationType.NONE,
+});
 
-const paymentSuccessDetailsPath =
-  stripeRestApi.root.addResource(
-    "payment-success-details",
-  );
-paymentSuccessDetailsPath.addMethod(
-  "GET",
-  stripeFunctionIntegration,
-  {
-    authorizationType: AuthorizationType.NONE,
-  },
-);
-
-const bookingTable =
-  backend.data.resources.tables["Booking"];
-
-const ownerProfileTable =
-  backend.data.resources.tables[
-    "ExperienceOwnerProfile"
-  ];
-
-const bookingMessageTable =
-  backend.data.resources.tables["BookingMessage"];
+const bookingTable = backend.data.resources.tables["Booking"];
+const ownerProfileTable = backend.data.resources.tables["ExperienceOwnerProfile"];
+const bookingMessageTable = backend.data.resources.tables["BookingMessage"];
 
 bookingTable.grantReadWriteData(stripeLambda);
 ownerProfileTable.grantReadData(stripeLambda);
@@ -144,12 +123,10 @@ backend.stripeApiFunction.addEnvironment(
   "BOOKING_TABLE_NAME",
   bookingTable.tableName,
 );
-
 backend.stripeApiFunction.addEnvironment(
   "OWNER_PROFILE_TABLE_NAME",
   ownerProfileTable.tableName,
 );
-
 backend.stripeApiFunction.addEnvironment(
   "BOOKING_MESSAGE_TABLE_NAME",
   bookingMessageTable.tableName,

@@ -71,20 +71,15 @@ function jsonResponse(
     headers: {
       "Content-Type": "application/json",
       "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Headers":
-        "Content-Type,Authorization",
-      "Access-Control-Allow-Methods":
-        "GET,POST,OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type,Authorization",
+      "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
     },
     body: JSON.stringify(body),
   };
 }
 
 function parseRequestBody(body: string | null | undefined): BookingRequest {
-  if (!body) {
-    return {};
-  }
-
+  if (!body) return {};
   try {
     return JSON.parse(body) as BookingRequest;
   } catch {
@@ -96,28 +91,17 @@ function getHeader(
   headers: Record<string, string | undefined> | null | undefined,
   headerName: string,
 ): string | undefined {
-  if (!headers) {
-    return undefined;
-  }
-
+  if (!headers) return undefined;
   const wanted = headerName.toLowerCase();
-
   for (const [name, value] of Object.entries(headers)) {
-    if (name.toLowerCase() === wanted) {
-      return value;
-    }
+    if (name.toLowerCase() === wanted) return value;
   }
-
   return undefined;
 }
 
 function getRawRequestBody(event: ApiGatewayEvent): string {
   const body = event.body ?? "";
-
-  if (!event.isBase64Encoded) {
-    return body;
-  }
-
+  if (!event.isBase64Encoded) return body;
   return Buffer.from(body, "base64").toString("utf8");
 }
 
@@ -128,13 +112,10 @@ async function findOwnerProfileForUser(
     new ScanCommand({
       TableName: env.OWNER_PROFILE_TABLE_NAME,
       FilterExpression: "userId = :userId",
-      ExpressionAttributeValues: {
-        ":userId": userId,
-      },
+      ExpressionAttributeValues: { ":userId": userId },
       ProjectionExpression: "id, userId",
     }),
   );
-
   return (result.Items?.[0] as OwnerProfileRecord | undefined) ?? null;
 }
 
@@ -145,44 +126,44 @@ async function getBooking(bookingId: string): Promise<BookingRecord | null> {
       Key: { id: bookingId },
     }),
   );
-
   return (result.Item as BookingRecord | undefined) ?? null;
+}
+
+async function findBookingByPaymentIntentId(
+  paymentIntentId: string,
+): Promise<BookingRecord | null> {
+  const result = await dynamoDb.send(
+    new ScanCommand({
+      TableName: env.BOOKING_TABLE_NAME,
+      FilterExpression: "stripePaymentIntentId = :paymentIntentId",
+      ExpressionAttributeValues: {
+        ":paymentIntentId": paymentIntentId,
+      },
+    }),
+  );
+
+  return (result.Items?.[0] as BookingRecord | undefined) ?? null;
 }
 
 async function getOwnerProfileById(
   ownerProfileId: string | undefined,
 ): Promise<OwnerProfileRecord | null> {
-  if (!ownerProfileId) {
-    return null;
-  }
-
+  if (!ownerProfileId) return null;
   const result = await dynamoDb.send(
     new GetCommand({
       TableName: env.OWNER_PROFILE_TABLE_NAME,
       Key: { id: ownerProfileId },
     }),
   );
-
   return (result.Item as OwnerProfileRecord | undefined) ?? null;
 }
 
 function formatPaymentEmailDateTime(value?: string) {
-  if (!value) {
-    return {
-      appointmentDate: "Not set",
-      appointmentTime: "Not set",
-    };
-  }
-
+  if (!value) return { appointmentDate: "Not set", appointmentTime: "Not set" };
   const date = new Date(value);
-
   if (Number.isNaN(date.getTime())) {
-    return {
-      appointmentDate: value,
-      appointmentTime: "Not set",
-    };
+    return { appointmentDate: value, appointmentTime: "Not set" };
   }
-
   return {
     appointmentDate: date.toLocaleDateString("en-US", {
       weekday: "short",
@@ -202,9 +183,7 @@ async function sendPaymentReceivedEmail(
   session: Stripe.Checkout.Session,
 ): Promise<void> {
   if (booking.paymentConfirmationEmailSent) {
-    console.log(
-      `Payment confirmation email already sent for Booking ${booking.id}.`,
-    );
+    console.log(`Payment confirmation email already sent for Booking ${booking.id}.`);
     return;
   }
 
@@ -220,7 +199,6 @@ async function sendPaymentReceivedEmail(
   }
 
   const customerEmail = booking.customerEmail?.trim();
-
   if (!customerEmail) {
     console.error(
       `Payment was received for Booking ${booking.id}, but no customer email is available.`,
@@ -228,42 +206,31 @@ async function sendPaymentReceivedEmail(
     return;
   }
 
-  const ownerProfile = await getOwnerProfileById(
-    booking.ownerProfileId,
-  );
-
+  const ownerProfile = await getOwnerProfileById(booking.ownerProfileId);
   const ownerEmail = ownerProfile?.email?.trim();
   const moderatorEmail =
-    process.env.COASTLIFE_MODERATOR_EMAIL?.trim() ||
-    "alan_craig@msn.com";
+    process.env.COASTLIFE_MODERATOR_EMAIL?.trim() || "alan_craig@msn.com";
 
   const ccRecipients = [ownerEmail, moderatorEmail]
     .filter((email): email is string => Boolean(email))
     .filter(
       (email, index, all) =>
         all.findIndex(
-          (candidate) =>
-            candidate.toLowerCase() === email.toLowerCase(),
+          (candidate) => candidate.toLowerCase() === email.toLowerCase(),
         ) === index,
     )
     .join(",");
 
   const { appointmentDate, appointmentTime } =
-    formatPaymentEmailDateTime(
-      booking.appointmentDateTime,
-    );
+    formatPaymentEmailDateTime(booking.appointmentDateTime);
 
-  const paidAmountInCents =
-    session.amount_total ?? booking.amountInCents ?? 0;
-
+  const paidAmountInCents = session.amount_total ?? booking.amountInCents ?? 0;
   const amountPaid = new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: (session.currency ?? "usd").toUpperCase(),
   }).format(paidAmountInCents / 100);
 
-  const subject =
-    "Your Coast Life Booking Payment Was Received";
-
+  const subject = "Your Coast Life Booking Payment Was Received";
   const message = [
     `Hello ${booking.customerName?.trim() || "Customer"},`,
     "",
@@ -280,42 +247,34 @@ async function sendPaymentReceivedEmail(
     "Thank you for booking with Coast Life.",
   ].join("\n");
 
-  const response = await fetch(
-    "https://api.emailjs.com/api/v1.0/email/send",
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
+  const response = await fetch("https://api.emailjs.com/api/v1.0/email/send", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      service_id: serviceId,
+      template_id: templateId,
+      user_id: publicKey,
+      template_params: {
+        subject,
+        message,
+        to_email: customerEmail,
+        cc_email: ccRecipients,
+        customer_name: booking.customerName?.trim() ?? "",
+        customer_email: customerEmail,
+        experience_name: booking.experienceName ?? "",
+        location: booking.location ?? "",
+        appointment_date: appointmentDate,
+        appointment_time: appointmentTime,
+        booking_status: "PAID",
+        payment_status: "PAID",
+        amount_paid: amountPaid,
+        owner_name: ownerProfile?.name?.trim() ?? "",
+        owner_email: ownerEmail ?? "",
       },
-      body: JSON.stringify({
-        service_id: serviceId,
-        template_id: templateId,
-        user_id: publicKey,
-        template_params: {
-          subject,
-          message,
-          to_email: customerEmail,
-          cc_email: ccRecipients,
-          customer_name:
-            booking.customerName?.trim() ?? "",
-          customer_email: customerEmail,
-          experience_name:
-            booking.experienceName ?? "",
-          location: booking.location ?? "",
-          appointment_date: appointmentDate,
-          appointment_time: appointmentTime,
-          booking_status: "PAID",
-          payment_status: "PAID",
-          amount_paid: amountPaid,
-          owner_name: ownerProfile?.name?.trim() ?? "",
-          owner_email: ownerEmail ?? "",
-        },
-      }),
-    },
-  );
+    }),
+  });
 
   const responseText = await response.text();
-
   if (!response.ok) {
     console.error(
       `EmailJS payment confirmation failed (${response.status}): ${responseText}`,
@@ -327,33 +286,19 @@ async function sendPaymentReceivedEmail(
     new UpdateCommand({
       TableName: env.BOOKING_TABLE_NAME,
       Key: { id: booking.id },
-      UpdateExpression:
-        "SET paymentConfirmationEmailSent = :sent",
-      ExpressionAttributeValues: {
-        ":sent": true,
-      },
+      UpdateExpression: "SET paymentConfirmationEmailSent = :sent",
+      ExpressionAttributeValues: { ":sent": true },
     }),
   );
 
-  console.log(
-    `Payment confirmation email sent for Booking ${booking.id}.`,
-  );
+  console.log(`Payment confirmation email sent for Booking ${booking.id}.`);
 }
 
 async function validateBookingForOwner(event: ApiGatewayEvent): Promise<
-  | {
-      response: ApiGatewayResponse;
-      ownerProfile?: never;
-      booking?: never;
-    }
-  | {
-      response?: never;
-      ownerProfile: OwnerProfileRecord;
-      booking: BookingRecord;
-    }
+  | { response: ApiGatewayResponse; ownerProfile?: never; booking?: never }
+  | { response?: never; ownerProfile: OwnerProfileRecord; booking: BookingRecord }
 > {
   const signedInUserId = event.requestContext?.authorizer?.claims?.sub;
-
   if (!signedInUserId) {
     return {
       response: jsonResponse(401, {
@@ -364,29 +309,21 @@ async function validateBookingForOwner(event: ApiGatewayEvent): Promise<
   }
 
   let request: BookingRequest;
-
   try {
     request = parseRequestBody(event.body);
   } catch (error: unknown) {
     return {
       response: jsonResponse(400, {
         success: false,
-        message:
-          error instanceof Error
-            ? error.message
-            : "The request body is invalid.",
+        message: error instanceof Error ? error.message : "The request body is invalid.",
       }),
     };
   }
 
   const bookingId = request.bookingId?.trim();
-
   if (!bookingId) {
     return {
-      response: jsonResponse(400, {
-        success: false,
-        message: "bookingId is required.",
-      }),
+      response: jsonResponse(400, { success: false, message: "bookingId is required." }),
     };
   }
 
@@ -406,10 +343,7 @@ async function validateBookingForOwner(event: ApiGatewayEvent): Promise<
 
   if (!booking) {
     return {
-      response: jsonResponse(404, {
-        success: false,
-        message: "The booking could not be found.",
-      }),
+      response: jsonResponse(404, { success: false, message: "The booking could not be found." }),
     };
   }
 
@@ -434,10 +368,7 @@ async function validateBookingForOwner(event: ApiGatewayEvent): Promise<
 
   if (booking.paymentStatus === "PAID") {
     return {
-      response: jsonResponse(409, {
-        success: false,
-        message: "This booking has already been paid.",
-      }),
+      response: jsonResponse(409, { success: false, message: "This booking has already been paid." }),
     };
   }
 
@@ -451,10 +382,7 @@ async function validateBookingForOwner(event: ApiGatewayEvent): Promise<
     };
   }
 
-  if (
-    !Number.isInteger(booking.amountInCents) ||
-    (booking.amountInCents ?? 0) <= 0
-  ) {
+  if (!Number.isInteger(booking.amountInCents) || (booking.amountInCents ?? 0) <= 0) {
     return {
       response: jsonResponse(409, {
         success: false,
@@ -475,21 +403,11 @@ async function validateBookingForOwner(event: ApiGatewayEvent): Promise<
   return { ownerProfile, booking };
 }
 
-async function validateBookingForCustomer(
-  event: ApiGatewayEvent,
-): Promise<
-  | {
-      response: ApiGatewayResponse;
-      booking?: never;
-    }
-  | {
-      response?: never;
-      booking: BookingRecord;
-    }
+async function validateBookingForCustomer(event: ApiGatewayEvent): Promise<
+  | { response: ApiGatewayResponse; booking?: never }
+  | { response?: never; booking: BookingRecord }
 > {
-  const signedInUserId =
-    event.requestContext?.authorizer?.claims?.sub;
-
+  const signedInUserId = event.requestContext?.authorizer?.claims?.sub;
   if (!signedInUserId) {
     return {
       response: jsonResponse(401, {
@@ -500,40 +418,28 @@ async function validateBookingForCustomer(
   }
 
   let request: BookingRequest;
-
   try {
     request = parseRequestBody(event.body);
   } catch (error: unknown) {
     return {
       response: jsonResponse(400, {
         success: false,
-        message:
-          error instanceof Error
-            ? error.message
-            : "The request body is invalid.",
+        message: error instanceof Error ? error.message : "The request body is invalid.",
       }),
     };
   }
 
   const bookingId = request.bookingId?.trim();
-
   if (!bookingId) {
     return {
-      response: jsonResponse(400, {
-        success: false,
-        message: "bookingId is required.",
-      }),
+      response: jsonResponse(400, { success: false, message: "bookingId is required." }),
     };
   }
 
   const booking = await getBooking(bookingId);
-
   if (!booking) {
     return {
-      response: jsonResponse(404, {
-        success: false,
-        message: "The booking could not be found.",
-      }),
+      response: jsonResponse(404, { success: false, message: "The booking could not be found." }),
     };
   }
 
@@ -541,8 +447,7 @@ async function validateBookingForCustomer(
     return {
       response: jsonResponse(403, {
         success: false,
-        message:
-          "This older booking is not linked to a customer account.",
+        message: "This older booking is not linked to a customer account.",
       }),
     };
   }
@@ -560,8 +465,7 @@ async function validateBookingForCustomer(
     return {
       response: jsonResponse(409, {
         success: false,
-        message:
-          "The booking must be accepted before payment can begin.",
+        message: "The booking must be accepted before payment can begin.",
         currentStatus: booking.status ?? null,
       }),
     };
@@ -569,10 +473,7 @@ async function validateBookingForCustomer(
 
   if (booking.paymentStatus === "PAID") {
     return {
-      response: jsonResponse(409, {
-        success: false,
-        message: "This booking has already been paid.",
-      }),
+      response: jsonResponse(409, { success: false, message: "This booking has already been paid." }),
     };
   }
 
@@ -586,10 +487,7 @@ async function validateBookingForCustomer(
     };
   }
 
-  if (
-    !Number.isInteger(booking.amountInCents) ||
-    (booking.amountInCents ?? 0) <= 0
-  ) {
+  if (!Number.isInteger(booking.amountInCents) || (booking.amountInCents ?? 0) <= 0) {
     return {
       response: jsonResponse(409, {
         success: false,
@@ -630,11 +528,7 @@ async function handleBookingPaymentDetails(
   event: ApiGatewayEvent,
 ): Promise<ApiGatewayResponse> {
   const validation = await validateBookingForOwner(event);
-
-  if (validation.response) {
-    return validation.response;
-  }
-
+  if (validation.response) return validation.response;
   return jsonResponse(200, {
     success: true,
     message: "The booking is eligible for Stripe payment.",
@@ -647,15 +541,10 @@ async function createOrReuseCheckoutSession(
 ): Promise<ApiGatewayResponse> {
   if (booking.stripeCheckoutSessionId) {
     try {
-      const existingSession =
-        await stripe.checkout.sessions.retrieve(
-          booking.stripeCheckoutSessionId,
-        );
-
-      if (
-        existingSession.status === "open" &&
-        existingSession.url
-      ) {
+      const existingSession = await stripe.checkout.sessions.retrieve(
+        booking.stripeCheckoutSessionId,
+      );
+      if (existingSession.status === "open" && existingSession.url) {
         return jsonResponse(200, {
           success: true,
           message: "The existing Stripe Checkout link is still active.",
@@ -668,15 +557,11 @@ async function createOrReuseCheckoutSession(
         });
       }
     } catch (error: unknown) {
-      console.warn(
-        "The previous Stripe Checkout Session could not be reused.",
-        error,
-      );
+      console.warn("The previous Stripe Checkout Session could not be reused.", error);
     }
   }
 
   const appUrl = env.APP_URL.replace(/\/$/, "");
-
   const session = await stripe.checkout.sessions.create({
     mode: "payment",
     customer_email: booking.customerEmail,
@@ -694,13 +579,9 @@ async function createOrReuseCheckoutSession(
           currency: "usd",
           unit_amount: booking.amountInCents,
           product_data: {
-            name:
-              booking.experienceName ??
-              "Coast Life Experience",
+            name: booking.experienceName ?? "Coast Life Experience",
             description: booking.appointmentDateTime
-              ? `Booking for ${new Date(
-                  booking.appointmentDateTime,
-                ).toLocaleString("en-US")}`
+              ? `Booking for ${new Date(booking.appointmentDateTime).toLocaleString("en-US")}`
               : "Coast Life booking",
           },
         },
@@ -711,9 +592,7 @@ async function createOrReuseCheckoutSession(
         booking.id,
       )}&session_id={CHECKOUT_SESSION_ID}`,
     cancel_url:
-      `${appUrl}/?payment=cancelled&bookingId=${encodeURIComponent(
-        booking.id,
-      )}`,
+      `${appUrl}/?payment=cancelled&bookingId=${encodeURIComponent(booking.id)}`,
   });
 
   if (!session.url) {
@@ -741,24 +620,15 @@ async function createOrReuseCheckoutSession(
       }),
     );
   } catch (error: unknown) {
-    console.error(
-      "Stripe Session was created but could not be saved to the Booking.",
-      error,
-    );
-
+    console.error("Stripe Session was created but could not be saved to the Booking.", error);
     try {
       await stripe.checkout.sessions.expire(session.id);
     } catch (expireError: unknown) {
-      console.error(
-        "The untracked Stripe Session could not be expired.",
-        expireError,
-      );
+      console.error("The untracked Stripe Session could not be expired.", expireError);
     }
-
     return jsonResponse(500, {
       success: false,
-      message:
-        "The Stripe Session was created, but the Booking could not be updated.",
+      message: "The Stripe Session was created, but the Booking could not be updated.",
     });
   }
 
@@ -776,11 +646,7 @@ async function handleCreateCheckoutSession(
   event: ApiGatewayEvent,
 ): Promise<ApiGatewayResponse> {
   const validation = await validateBookingForOwner(event);
-
-  if (validation.response) {
-    return validation.response;
-  }
-
+  if (validation.response) return validation.response;
   return createOrReuseCheckoutSession(validation.booking);
 }
 
@@ -788,12 +654,231 @@ async function handleCustomerCreateCheckoutSession(
   event: ApiGatewayEvent,
 ): Promise<ApiGatewayResponse> {
   const validation = await validateBookingForCustomer(event);
+  if (validation.response) return validation.response;
+  return createOrReuseCheckoutSession(validation.booking);
+}
 
-  if (validation.response) {
-    return validation.response;
+async function handleIOSCreatePaymentIntent(
+  event: ApiGatewayEvent,
+): Promise<ApiGatewayResponse> {
+  const validation = await validateBookingForCustomer(event);
+  if (validation.response) return validation.response;
+
+  const booking = validation.booking;
+
+  if (booking.stripePaymentIntentId) {
+    try {
+      const existingIntent = await stripe.paymentIntents.retrieve(
+        booking.stripePaymentIntentId,
+      );
+
+      if (
+        existingIntent.status !== "succeeded" &&
+        existingIntent.status !== "canceled" &&
+        existingIntent.client_secret
+      ) {
+        return jsonResponse(200, {
+          success: true,
+          message: "Existing Stripe PaymentIntent reused.",
+          clientSecret: existingIntent.client_secret,
+          paymentIntentId: existingIntent.id,
+          amountInCents: booking.amountInCents ?? null,
+          currency: existingIntent.currency.toUpperCase(),
+          reused: true,
+        });
+      }
+    } catch (error: unknown) {
+      console.warn("Existing PaymentIntent could not be reused.", error);
+    }
   }
 
-  return createOrReuseCheckoutSession(validation.booking);
+  const paymentIntent = await stripe.paymentIntents.create({
+    amount: booking.amountInCents!,
+    currency: "usd",
+    automatic_payment_methods: { enabled: true },
+    metadata: {
+      bookingId: booking.id,
+      experienceId: booking.experienceId ?? "",
+      ownerProfileId: booking.ownerProfileId ?? "",
+      customerUserId: booking.customerUserId ?? "",
+    },
+    description: booking.experienceName
+      ? `Coast Life - ${booking.experienceName}`
+      : "Coast Life Experience",
+  });
+
+  if (!paymentIntent.client_secret) {
+    return jsonResponse(502, {
+      success: false,
+      message: "Stripe did not return a PaymentIntent client secret.",
+    });
+  }
+
+  try {
+    await dynamoDb.send(
+      new UpdateCommand({
+        TableName: env.BOOKING_TABLE_NAME,
+        Key: { id: booking.id },
+        UpdateExpression: "SET stripePaymentIntentId = :paymentIntentId",
+        ExpressionAttributeValues: {
+          ":paymentIntentId": paymentIntent.id,
+        },
+      }),
+    );
+  } catch (error: unknown) {
+    console.error(
+      "PaymentIntent was created but could not be saved to the Booking.",
+      error,
+    );
+    try {
+      await stripe.paymentIntents.cancel(paymentIntent.id);
+    } catch (cancelError: unknown) {
+      console.error("Untracked PaymentIntent could not be cancelled.", cancelError);
+    }
+    return jsonResponse(500, {
+      success: false,
+      message:
+        "The Stripe PaymentIntent was created, but the Booking could not be updated.",
+    });
+  }
+
+  console.log("iOS PaymentIntent created.", {
+    bookingId: booking.id,
+    amountInCents: booking.amountInCents,
+    paymentIntentId: paymentIntent.id,
+  });
+
+  return jsonResponse(200, {
+    success: true,
+    message: "Stripe PaymentIntent created.",
+    clientSecret: paymentIntent.client_secret,
+    paymentIntentId: paymentIntent.id,
+    amountInCents: booking.amountInCents ?? null,
+    currency: "USD",
+    reused: false,
+  });
+}
+
+async function handleIOSConfirmPayment(
+  event: ApiGatewayEvent,
+): Promise<ApiGatewayResponse> {
+  const signedInUserId = event.requestContext?.authorizer?.claims?.sub;
+  if (!signedInUserId) {
+    return jsonResponse(401, {
+      success: false,
+      message: "The signed-in customer could not be identified.",
+    });
+  }
+
+  let request: BookingRequest;
+  try {
+    request = parseRequestBody(event.body);
+  } catch (error: unknown) {
+    return jsonResponse(400, {
+      success: false,
+      message:
+        error instanceof Error ? error.message : "The request body is invalid.",
+    });
+  }
+
+  const bookingId = request.bookingId?.trim();
+  if (!bookingId) {
+    return jsonResponse(400, {
+      success: false,
+      message: "bookingId is required.",
+    });
+  }
+
+  const booking = await getBooking(bookingId);
+  if (!booking) {
+    return jsonResponse(404, {
+      success: false,
+      message: "The booking could not be found.",
+    });
+  }
+
+  if (!booking.customerUserId || booking.customerUserId !== signedInUserId) {
+    return jsonResponse(403, {
+      success: false,
+      message: "This booking does not belong to the signed-in customer.",
+    });
+  }
+
+  if (booking.status !== "ACCEPTED") {
+    return jsonResponse(409, {
+      success: false,
+      message: "The booking must be accepted before payment can be confirmed.",
+      currentStatus: booking.status ?? null,
+    });
+  }
+
+  const paymentIntentId = booking.stripePaymentIntentId?.trim();
+  if (!paymentIntentId) {
+    return jsonResponse(409, {
+      success: false,
+      message: "This booking does not have a Stripe PaymentIntent to confirm.",
+    });
+  }
+
+  const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
+
+  if (paymentIntent.metadata?.bookingId !== booking.id) {
+    return jsonResponse(409, {
+      success: false,
+      message: "The Stripe PaymentIntent is not associated with this booking.",
+    });
+  }
+
+  if (
+    booking.amountInCents != null &&
+    paymentIntent.amount !== booking.amountInCents
+  ) {
+    return jsonResponse(409, {
+      success: false,
+      message: "The Stripe PaymentIntent amount does not match the booking amount.",
+    });
+  }
+
+  if (paymentIntent.currency.toLowerCase() !== "usd") {
+    return jsonResponse(409, {
+      success: false,
+      message: "The Stripe PaymentIntent currency does not match the booking currency.",
+    });
+  }
+
+  if (paymentIntent.status !== "succeeded") {
+    return jsonResponse(409, {
+      success: false,
+      message: "Stripe has not confirmed this payment as successful yet.",
+      paymentIntentId: paymentIntent.id,
+      stripeStatus: paymentIntent.status,
+    });
+  }
+
+  console.log("iOS confirm payment: Stripe verified succeeded PaymentIntent.", {
+    bookingId: booking.id,
+    paymentIntentId: paymentIntent.id,
+    stripeStatus: paymentIntent.status,
+  });
+
+  const paidBooking = await markBookingPaidFromPaymentIntent(paymentIntent);
+  if (!paidBooking) {
+    return jsonResponse(409, {
+      success: false,
+      message: "Stripe payment could not be confirmed for this booking.",
+    });
+  }
+
+  return jsonResponse(200, {
+    success: true,
+    message: "Payment verified with Stripe and the booking was marked PAID.",
+    booking: {
+      id: paidBooking.id,
+      paymentStatus: paidBooking.paymentStatus ?? "PAID",
+      stripePaymentIntentId: paidBooking.stripePaymentIntentId ?? paymentIntent.id,
+      paidAt: paidBooking.paidAt ?? null,
+    },
+  });
 }
 
 async function markBookingPaid(
@@ -803,9 +888,7 @@ async function markBookingPaid(
     session.metadata?.bookingId ?? session.client_reference_id ?? undefined;
 
   if (!bookingId) {
-    throw new Error(
-      `Stripe Session ${session.id} does not contain a bookingId.`,
-    );
+    throw new Error(`Stripe Session ${session.id} does not contain a bookingId.`);
   }
 
   if (session.payment_status !== "paid") {
@@ -816,7 +899,6 @@ async function markBookingPaid(
   }
 
   const booking = await getBooking(bookingId);
-
   if (!booking) {
     throw new Error(`Booking ${bookingId} could not be found.`);
   }
@@ -868,6 +950,116 @@ async function markBookingPaid(
   };
 }
 
+async function markBookingPaidFromPaymentIntent(
+  paymentIntent: Stripe.PaymentIntent,
+): Promise<BookingRecord | null> {
+  if (paymentIntent.status !== "succeeded") {
+    console.log(
+      `Ignoring PaymentIntent ${paymentIntent.id} because status is ${paymentIntent.status}.`,
+    );
+    return null;
+  }
+
+  const metadataBookingId =
+    paymentIntent.metadata?.bookingId?.trim() || undefined;
+
+  let booking: BookingRecord | null = null;
+
+  if (metadataBookingId) {
+    booking = await getBooking(metadataBookingId);
+
+    console.log("iOS webhook lookup by metadata bookingId.", {
+      paymentIntentId: paymentIntent.id,
+      bookingId: metadataBookingId,
+      found: Boolean(booking),
+    });
+  }
+
+  // Fallback to the PaymentIntent ID already saved on Booking.
+  if (!booking) {
+    booking = await findBookingByPaymentIntentId(paymentIntent.id);
+
+    console.log("iOS webhook fallback lookup by PaymentIntent ID.", {
+      paymentIntentId: paymentIntent.id,
+      bookingId: booking?.id ?? null,
+      found: Boolean(booking),
+    });
+  }
+
+  if (!booking) {
+    throw new Error(
+      `No Booking could be found for PaymentIntent ${paymentIntent.id}.`,
+    );
+  }
+
+  const bookingId = booking.id;
+
+  if (
+    booking.stripePaymentIntentId &&
+    booking.stripePaymentIntentId !== paymentIntent.id
+  ) {
+    throw new Error(
+      `PaymentIntent ${paymentIntent.id} does not match the PaymentIntent saved on Booking ${bookingId}.`,
+    );
+  }
+
+  if (
+    booking.paymentStatus !== "AWAITING_PAYMENT" &&
+    booking.paymentStatus !== "PAID"
+  ) {
+    throw new Error(
+      `Booking ${bookingId} cannot be marked paid because paymentStatus is ${booking.paymentStatus ?? "null"}.`,
+    );
+  }
+
+  const paidAt = booking.paidAt ?? new Date().toISOString();
+
+  console.log("iOS webhook: updating Booking to PAID.", {
+    bookingId,
+    paymentIntentId: paymentIntent.id,
+    currentPaymentStatus: booking.paymentStatus ?? null,
+  });
+
+  await dynamoDb.send(
+    new UpdateCommand({
+      TableName: env.BOOKING_TABLE_NAME,
+      Key: { id: bookingId },
+      UpdateExpression:
+        "SET paymentStatus = :paid, stripePaymentIntentId = :paymentIntentId, paidAt = :paidAt REMOVE paymentExpiresAt",
+      ConditionExpression:
+        "#paymentStatus = :awaitingPayment OR #paymentStatus = :paid",
+      ExpressionAttributeNames: {
+        "#paymentStatus": "paymentStatus",
+      },
+      ExpressionAttributeValues: {
+        ":paid": "PAID",
+        ":awaitingPayment": "AWAITING_PAYMENT",
+        ":paymentIntentId": paymentIntent.id,
+        ":paidAt": paidAt,
+      },
+    }),
+  );
+
+  const updatedBooking = await getBooking(bookingId);
+
+  console.log("iOS webhook: Booking after update.", {
+    bookingId,
+    paymentStatus: updatedBooking?.paymentStatus ?? null,
+    stripePaymentIntentId:
+      updatedBooking?.stripePaymentIntentId ?? null,
+    paidAt: updatedBooking?.paidAt ?? null,
+  });
+
+  return (
+    updatedBooking ?? {
+      ...booking,
+      paymentStatus: "PAID",
+      stripePaymentIntentId: paymentIntent.id,
+      paidAt,
+    }
+  );
+}
+
 async function handlePaymentSuccessDetails(
   event: ApiGatewayEvent,
 ): Promise<ApiGatewayResponse> {
@@ -882,7 +1074,6 @@ async function handlePaymentSuccessDetails(
   }
 
   const booking = await getBooking(bookingId);
-
   if (!booking) {
     return jsonResponse(404, {
       success: false,
@@ -942,7 +1133,6 @@ async function handleStripeWebhook(
   }
 
   const payload = getRawRequestBody(event);
-
   let stripeEvent: Stripe.Event;
 
   try {
@@ -953,7 +1143,6 @@ async function handleStripeWebhook(
     );
   } catch (error: unknown) {
     console.error("Stripe webhook signature verification failed:", error);
-
     return jsonResponse(400, {
       success: false,
       message: "Stripe webhook signature verification failed.",
@@ -965,14 +1154,32 @@ async function handleStripeWebhook(
       case "checkout.session.completed":
       case "checkout.session.async_payment_succeeded": {
         const session = stripeEvent.data.object as Stripe.Checkout.Session;
-
-        const paidBooking =
-          await markBookingPaid(session);
+        const paidBooking = await markBookingPaid(session);
 
         if (paidBooking) {
-          await sendPaymentReceivedEmail(
-            paidBooking,
-            session,
+          await sendPaymentReceivedEmail(paidBooking, session);
+        }
+        break;
+      }
+
+      case "payment_intent.succeeded": {
+        const paymentIntent =
+          stripeEvent.data.object as Stripe.PaymentIntent;
+
+        console.log("======================================");
+        console.log("IOS PAYMENT_INTENT.SUCCEEDED WEBHOOK");
+        console.log("Event ID:", stripeEvent.id);
+        console.log("PaymentIntent ID:", paymentIntent.id);
+        console.log("Status:", paymentIntent.status);
+        console.log("Metadata:", paymentIntent.metadata);
+        console.log("======================================");
+
+        const paidBooking =
+          await markBookingPaidFromPaymentIntent(paymentIntent);
+
+        if (paidBooking) {
+          console.log(
+            `iOS payment completed for Booking ${paidBooking.id}.`,
           );
         }
 
@@ -987,17 +1194,13 @@ async function handleStripeWebhook(
       `Stripe webhook processing failed for event ${stripeEvent.id}:`,
       error,
     );
-
-    // A non-2xx response causes Stripe to retry the event.
     return jsonResponse(500, {
       success: false,
       message: "The Stripe webhook could not update the Booking.",
     });
   }
 
-  return jsonResponse(200, {
-    received: true,
-  });
+  return jsonResponse(200, { received: true });
 }
 
 export const handler = async (
@@ -1025,9 +1228,21 @@ export const handler = async (
 
     if (
       event.httpMethod === "POST" &&
-      event.path?.endsWith(
-        "/customer-create-checkout-session",
-      )
+      event.path?.endsWith("/ios-create-payment-intent")
+    ) {
+      return await handleIOSCreatePaymentIntent(event);
+    }
+
+    if (
+      event.httpMethod === "POST" &&
+      event.path?.endsWith("/ios-confirm-payment")
+    ) {
+      return await handleIOSConfirmPayment(event);
+    }
+
+    if (
+      event.httpMethod === "POST" &&
+      event.path?.endsWith("/customer-create-checkout-session")
     ) {
       return await handleCustomerCreateCheckoutSession(event);
     }
@@ -1046,7 +1261,10 @@ export const handler = async (
       return await handleBookingPaymentDetails(event);
     }
 
-    if (event.httpMethod === "GET" && event.path?.endsWith("/stripe-test")) {
+    if (
+      event.httpMethod === "GET" &&
+      event.path?.endsWith("/stripe-test")
+    ) {
       const userEmail =
         event.requestContext?.authorizer?.claims?.email ?? "signed-in owner";
 
