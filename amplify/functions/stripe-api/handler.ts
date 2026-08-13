@@ -1394,6 +1394,15 @@ export const handler = async (
     path: event.path,
   });
 
+  console.log("LAMBDA RUNTIME IDENTITY:", {
+    functionName: process.env.AWS_LAMBDA_FUNCTION_NAME,
+    functionVersion: process.env.AWS_LAMBDA_FUNCTION_VERSION,
+    logStream: process.env.AWS_LAMBDA_LOG_STREAM_NAME,
+    serviceId: process.env.EMAILJS_SERVICE_ID,
+    templateId: process.env.EMAILJS_TEMPLATE_ID,
+    publicKeyLast4: process.env.EMAILJS_PUBLIC_KEY?.slice(-4),
+  });
+
   try {
     if (
       event.httpMethod === "GET" &&
