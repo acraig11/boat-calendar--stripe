@@ -294,6 +294,156 @@ async function sendPaymentReceivedEmail(
   console.log(`Payment confirmation email sent for Booking ${booking.id}.`);
 }
 
+async function sendIOSPaymentReceivedEmail(
+  booking: BookingRecord,
+  paymentIntent: Stripe.PaymentIntent,
+): Promise<void> {
+  if (booking.paymentConfirmationEmailSent) {
+    console.log(
+      `Payment confirmation email already sent for Booking ${booking.id}.`,
+    );
+    return;
+  }
+
+  const serviceId = process.env.EMAILJS_SERVICE_ID?.trim();
+  const templateId = process.env.EMAILJS_TEMPLATE_ID?.trim();
+  const publicKey = process.env.EMAILJS_PUBLIC_KEY?.trim();
+
+  if (!serviceId || !templateId || !publicKey) {
+    console.error(
+      "iOS payment was received, but EmailJS is not configured for the Stripe API Lambda.",
+    );
+    return;
+  }
+
+  const customerEmail = booking.customerEmail?.trim();
+
+  if (!customerEmail) {
+    console.error(
+      `iOS payment was received for Booking ${booking.id}, but no customer email is available.`,
+    );
+    return;
+  }
+
+  const ownerProfile = await getOwnerProfileById(
+    booking.ownerProfileId,
+  );
+
+  const ownerEmail = ownerProfile?.email?.trim();
+  const moderatorEmail =
+    process.env.COASTLIFE_MODERATOR_EMAIL?.trim() ||
+    "alan_craig@msn.com";
+
+  const ccRecipients = [ownerEmail, moderatorEmail]
+    .filter((email): email is string => Boolean(email))
+    .filter(
+      (email, index, all) =>
+        all.findIndex(
+          (candidate) =>
+            candidate.toLowerCase() === email.toLowerCase(),
+        ) === index,
+    )
+    .join(",");
+
+  const { appointmentDate, appointmentTime } =
+    formatPaymentEmailDateTime(
+      booking.appointmentDateTime,
+    );
+
+  const paidAmountInCents =
+    paymentIntent.amount_received > 0
+      ? paymentIntent.amount_received
+      : paymentIntent.amount;
+
+  const amountPaid = new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: paymentIntent.currency.toUpperCase(),
+  }).format(paidAmountInCents / 100);
+
+  const subject =
+    "Your Coast Life Payment Was Accepted — Booking Confirmed";
+
+  const message = [
+    `Hello ${booking.customerName?.trim() || "Customer"},`,
+    "",
+    "Your payment has been accepted and your Coast Life booking is confirmed.",
+    "",
+    `Experience: ${booking.experienceName ?? "Not set"}`,
+    `Location: ${booking.location ?? "Not set"}`,
+    `Appointment Date: ${appointmentDate}`,
+    `Appointment Time: ${appointmentTime}`,
+    `Amount Paid: ${amountPaid}`,
+    "",
+    "Your booking is now confirmed.",
+    "",
+    "You can sign in to Coast Life and open My Bookings to view your confirmed booking.",
+    "",
+    "Thank you for booking with Coast Life.",
+  ].join("\n");
+
+  const response = await fetch(
+    "https://api.emailjs.com/api/v1.0/email/send",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        service_id: serviceId,
+        template_id: templateId,
+        user_id: publicKey,
+        template_params: {
+          subject,
+          message,
+          to_email: customerEmail,
+          cc_email: ccRecipients,
+          customer_name:
+            booking.customerName?.trim() ?? "",
+          customer_email: customerEmail,
+          experience_name:
+            booking.experienceName ?? "",
+          location: booking.location ?? "",
+          appointment_date: appointmentDate,
+          appointment_time: appointmentTime,
+          booking_status: "CONFIRMED",
+          payment_status: "PAID",
+          amount_paid: amountPaid,
+          owner_name:
+            ownerProfile?.name?.trim() ?? "",
+          owner_email: ownerEmail ?? "",
+          stripe_payment_intent_id:
+            paymentIntent.id,
+        },
+      }),
+    },
+  );
+
+  const responseText = await response.text();
+
+  if (!response.ok) {
+    console.error(
+      `EmailJS iOS payment confirmation failed (${response.status}): ${responseText}`,
+    );
+    return;
+  }
+
+  await dynamoDb.send(
+    new UpdateCommand({
+      TableName: env.BOOKING_TABLE_NAME,
+      Key: { id: booking.id },
+      UpdateExpression:
+        "SET paymentConfirmationEmailSent = :sent",
+      ExpressionAttributeValues: {
+        ":sent": true,
+      },
+    }),
+  );
+
+  console.log(
+    `iOS payment confirmation email sent for Booking ${booking.id}.`,
+  );
+}
+
 async function validateBookingForOwner(event: ApiGatewayEvent): Promise<
   | { response: ApiGatewayResponse; ownerProfile?: never; booking?: never }
   | { response?: never; ownerProfile: OwnerProfileRecord; booking: BookingRecord }
@@ -869,6 +1019,13 @@ async function handleIOSConfirmPayment(
     });
   }
 
+  // Send the customer payment/booking confirmation email.
+  // This helper is idempotent because it checks paymentConfirmationEmailSent.
+  await sendIOSPaymentReceivedEmail(
+    paidBooking,
+    paymentIntent,
+  );
+
   return jsonResponse(200, {
     success: true,
     message: "Payment verified with Stripe and the booking was marked PAID.",
@@ -1180,6 +1337,13 @@ async function handleStripeWebhook(
         if (paidBooking) {
           console.log(
             `iOS payment completed for Booking ${paidBooking.id}.`,
+          );
+
+          // Webhook backup: send the same confirmation email if the
+          // ios-confirm-payment route has not already sent it.
+          await sendIOSPaymentReceivedEmail(
+            paidBooking,
+            paymentIntent,
           );
         }
 

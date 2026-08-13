@@ -131,6 +131,20 @@ backend.stripeApiFunction.addEnvironment(
   "BOOKING_MESSAGE_TABLE_NAME",
   bookingMessageTable.tableName,
 );
+backend.stripeApiFunction.addEnvironment(
+  "EMAILJS_SERVICE_ID",
+  "service_nf7hgrf",
+);
+
+backend.stripeApiFunction.addEnvironment(
+  "EMAILJS_TEMPLATE_ID",
+  "template_drwqxjh",
+);
+
+backend.stripeApiFunction.addEnvironment(
+  "EMAILJS_PUBLIC_KEY",
+  "SRhh-Iq7WJBGL_2-l",
+);
 
 backend.addOutput({
   custom: {
