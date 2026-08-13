@@ -246,7 +246,13 @@ async function sendPaymentReceivedEmail(
     "",
     "Thank you for booking with Coast Life.",
   ].join("\n");
-
+console.log("PAYMENT EMAIL CONFIG:", {
+  serviceId,
+  templateId,
+  publicKeyLast4: publicKey?.slice(-4),
+  toEmail: customerEmail,
+  ccEmail: ccRecipients,
+});
   const response = await fetch("https://api.emailjs.com/api/v1.0/email/send", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
