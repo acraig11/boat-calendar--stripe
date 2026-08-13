@@ -387,6 +387,19 @@ async function sendIOSPaymentReceivedEmail(
     "Thank you for booking with Coast Life.",
   ].join("\n");
 
+  console.log("IOS PAYMENT EMAIL CONFIG:", {
+    serviceId,
+    templateId,
+    publicKeyLast4: publicKey?.slice(-4),
+    customerEmailFromBooking: booking.customerEmail,
+    toEmail: customerEmail,
+    ownerEmail,
+    moderatorEmail,
+    ccEmail: ccRecipients,
+    bookingId: booking.id,
+    paymentIntentId: paymentIntent.id,
+  });
+
   const response = await fetch(
     "https://api.emailjs.com/api/v1.0/email/send",
     {
