@@ -240,6 +240,13 @@
               "isRequired": false,
               "attributes": []
             },
+            "owner": {
+              "name": "owner",
+              "isArray": false,
+              "type": "String",
+              "isRequired": false,
+              "attributes": []
+            },
             "experiences": {
               "name": "experiences",
               "isArray": true,
@@ -839,6 +846,13 @@
               "name": "ownerAccessRequestId",
               "isArray": false,
               "type": "ID",
+              "isRequired": false,
+              "attributes": []
+            },
+            "owner": {
+              "name": "owner",
+              "isArray": false,
+              "type": "String",
               "isRequired": false,
               "attributes": []
             },
@@ -1675,7 +1689,23 @@
           ]
         }
       },
-      "nonModels": {}
+      "nonModels": {},
+      "mutations": {
+        "approveOwnerRequest": {
+          "name": "approveOwnerRequest",
+          "isArray": false,
+          "type": "String",
+          "isRequired": true,
+          "arguments": {
+            "requestId": {
+              "name": "requestId",
+              "isArray": false,
+              "type": "ID",
+              "isRequired": true
+            }
+          }
+        }
+      }
     }
   },
   "storage": {
