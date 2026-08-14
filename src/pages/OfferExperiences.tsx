@@ -180,11 +180,9 @@ function OfferExperiencesContent() {
   }, [experienceImagePreview]);
 
   function toggleExperienceType(experienceType: string) {
-    setSelectedExperienceTypes((current) =>
-      current.includes(experienceType)
-        ? current.filter((item) => item !== experienceType)
-        : [...current, experienceType],
-    );
+    // Only one initial experience can be submitted with an owner request.
+    // Selecting a new option automatically clears the previous selection.
+    setSelectedExperienceTypes([experienceType]);
   }
 
   function clearExperienceImage() {
@@ -324,7 +322,7 @@ function OfferExperiencesContent() {
 
     if (selectedExperienceTypes.length === 0) {
       setMessage(
-        "Select at least one type of experience.",
+        "Select one type of experience.",
       );
       return;
     }
@@ -671,7 +669,7 @@ function OfferExperiencesContent() {
           </section>
 
           <fieldset className="experience-types-fieldset">
-            <legend>Experiences you want to offer</legend>
+            <legend>Experience you want to offer</legend>
 
             <div className="experience-types-grid">
               {EXPERIENCE_TYPES.map((experienceType) => (

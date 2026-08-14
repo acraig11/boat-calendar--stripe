@@ -8,10 +8,6 @@ import { client } from "../lib/amplifyClient";
 import outputs from "../../amplify_outputs.json";
 import "./OwnerDashboard.css";
 import "./OwnerBookingRequests.css";
-import {
-  sendBookingDecisionEmail,
-  sendPartnerDecisionEmail,
-} from "../utils/email";
 
 type OwnerProfile = Awaited<
   ReturnType<typeof client.models.ExperienceOwnerProfile.list>
@@ -134,11 +130,9 @@ async function copyPartnerImageToPublicExperienceImages(
 function ExperienceImage({
   imagePath,
   experienceName,
-  className,
 }: {
   imagePath: string;
   experienceName: string;
-  className?: string;
 }) {
   const [displayUrl, setDisplayUrl] = useState("");
   const [imageError, setImageError] = useState("");
@@ -192,7 +186,12 @@ function ExperienceImage({
     <img
       src={displayUrl}
       alt={experienceName}
-      className={className}
+      width="200"
+      style={{
+        height: "140px",
+        objectFit: "cover",
+        borderRadius: "10px",
+      }}
     />
   );
 }
@@ -313,8 +312,10 @@ function PartnerRequestImage({
 }
 
 function DashboardContent({
+  signOut,
   userEmail,
 }: {
+  signOut?: () => void;
   userEmail: string;
 }) {
   const navigate = useNavigate();
@@ -568,7 +569,7 @@ function DashboardContent({
                   name: latestAccessRequest.applicantName,
                   email: latestAccessRequest.applicantEmail,
                   phone: latestAccessRequest.applicantPhone || undefined,
-                } as any);
+                });
 
               if (
                 createProfileResult.errors?.length ||
@@ -749,7 +750,11 @@ function DashboardContent({
         const initialExperienceLocation =
           latestAccessRequest.experienceLocation?.trim() ?? "";
 
-        const initialExperienceName = initialExperienceType;
+        const initialExperienceName =
+          latestAccessRequest.businessName?.trim() ||
+          (initialExperienceType
+            ? `${latestAccessRequest.applicantName}'s ${initialExperienceType} Experience`
+            : "");
 
         const normalizedType = initialExperienceType.toLowerCase();
         const normalizedLocation = initialExperienceLocation.toLowerCase();
@@ -866,7 +871,7 @@ function DashboardContent({
                       latestAccessRequest.estimatedPrice ?? undefined,
                     imageUrl: publicExperienceImagePath,
                     ownerProfileId: currentProfile.id,
-                  } as any);
+                  });
 
                 if (
                   createExperienceResult.errors?.length ||
@@ -1052,7 +1057,7 @@ function DashboardContent({
         name: trimmedName,
         email: trimmedEmail,
         phone: profilePhone.trim() || undefined,
-      } as any);
+      });
 
       if (result.errors?.length) {
         throw new Error(result.errors.map((error) => error.message).join(", "));
@@ -1270,7 +1275,7 @@ function DashboardContent({
           description: experienceDescription.trim() || undefined,
           estimatedPrice: numericPrice,
           imageUrl: uploadedImagePath ?? previousImagePath ?? undefined,
-        } as any);
+        });
 
         if (result.errors?.length) {
           throw new Error(
@@ -1318,7 +1323,7 @@ function DashboardContent({
           estimatedPrice: numericPrice,
           imageUrl: uploadedImagePath ?? undefined,
           ownerProfileId: profile.id,
-        } as any);
+        });
 
         if (result.errors?.length) {
           throw new Error(
@@ -1533,7 +1538,7 @@ function DashboardContent({
         client.models.BookingMessage.update({
           id: bookingMessage.id,
           readByOwnerAt: readAt,
-        } as any),
+        }),
       ),
     );
 
@@ -1624,7 +1629,7 @@ function DashboardContent({
       const result = await client.models.BookingMessage.update({
         id: bookingMessage.id,
         readByOwnerAt: readAt,
-      } as any);
+      });
 
       if (result.errors?.length) {
         throw new Error(
@@ -1874,7 +1879,7 @@ function DashboardContent({
         message: draft,
         messageType: "CHAT",
         readByOwnerAt: new Date().toISOString(),
-      } as any);
+      });
 
       if (result.errors?.length) {
         throw new Error(
@@ -2060,7 +2065,7 @@ function DashboardContent({
         await client.models.ExperienceCalendarEvent.update({
           id: request.calendarEvent.id,
           startDateTime: proposedDateTime.toISOString(),
-        } as any);
+        });
 
       if (calendarResult.errors?.length) {
         throw new Error(
@@ -2079,14 +2084,14 @@ function DashboardContent({
       const bookingResult = await client.models.Booking.update({
         id: request.booking.id,
         appointmentDateTime: proposedDateTime.toISOString(),
-      } as any);
+      });
 
       if (bookingResult.errors?.length || !bookingResult.data) {
         try {
           await client.models.ExperienceCalendarEvent.update({
             id: request.calendarEvent.id,
             startDateTime: previousCalendarDateTime,
-          } as any);
+          });
         } catch (rollbackError: unknown) {
           console.error(
             "The booking update failed and the calendar rollback also failed:",
@@ -2127,7 +2132,7 @@ function DashboardContent({
           )}.`,
           messageType: "BOOKING_DATE_CHANGED",
           readByOwnerAt: new Date().toISOString(),
-        } as any);
+        });
 
       if (messageResult.errors?.length) {
         throw new Error(
@@ -2224,7 +2229,7 @@ function DashboardContent({
         await client.models.ExperienceCalendarEvent.update({
           id: request.calendarEvent.id,
           status,
-        } as any);
+        });
 
       if (calendarResult.errors?.length) {
         throw new Error(
@@ -2241,7 +2246,7 @@ function DashboardContent({
         status,
         paymentStatus:
           status === "ACCEPTED" ? "AWAITING_PAYMENT" : "REJECTED",
-      } as any);
+      });
 
       if (bookingResult.errors?.length) {
         throw new Error(
@@ -2273,8 +2278,7 @@ function DashboardContent({
         if (status === "ACCEPTED") {
           setMessage("Creating the secure Stripe payment session...");
 
-          const checkoutSession =
-            await createCheckoutSession(request.booking.id);
+          await createCheckoutSession(request.booking.id);
 
           const approvedMessageResult =
             await client.models.BookingMessage.create({
@@ -2286,7 +2290,7 @@ function DashboardContent({
               senderName: "Coast Life",
               message: "Your booking request has been approved.",
               messageType: "BOOKING_APPROVED",
-            } as any);
+            });
 
           if (approvedMessageResult.errors?.length) {
             throw new Error(
@@ -2307,7 +2311,7 @@ function DashboardContent({
               message:
                 "Your booking will be confirmed once payment is received.",
               messageType: "AWAITING_PAYMENT",
-            } as any);
+            });
 
           if (awaitingPaymentMessageResult.errors?.length) {
             throw new Error(
@@ -2317,35 +2321,8 @@ function DashboardContent({
             );
           }
 
-          let approvalEmailWarning = "";
-
-          try {
-            await sendBookingDecisionEmail({
-              customerName: request.booking.customerName,
-              customerEmail: request.booking.customerEmail,
-              experienceName: request.booking.experienceName,
-              location: request.booking.location,
-              appointmentDateTime:
-                request.booking.appointmentDateTime,
-              status: "ACCEPTED",
-              ownerName: profile.name,
-              ownerEmail: profile.email,
-              ownerPhone: profile.phone,
-              paymentUrl: checkoutSession.checkoutUrl,
-            });
-          } catch (emailError: unknown) {
-            console.error(
-              "The booking was approved, but the customer email notification could not be sent:",
-              emailError,
-            );
-
-            approvalEmailWarning =
-              " The booking was updated, but the customer email notification could not be sent.";
-          }
-
           setMessage(
-            `${request.booking.customerName}'s booking was approved and is awaiting payment. The customer can view the update in My Bookings.` +
-              approvalEmailWarning,
+            `${request.booking.customerName}'s booking was approved and is awaiting payment. The customer can view the update in My Bookings.`,
           );
         } else {
           const rejectedMessageResult =
@@ -2359,7 +2336,7 @@ function DashboardContent({
               message:
                 "Unfortunately, your booking request was not approved.",
               messageType: "BOOKING_REJECTED",
-            } as any);
+            });
 
           if (rejectedMessageResult.errors?.length) {
             throw new Error(
@@ -2369,34 +2346,8 @@ function DashboardContent({
             );
           }
 
-          let rejectionEmailWarning = "";
-
-          try {
-            await sendBookingDecisionEmail({
-              customerName: request.booking.customerName,
-              customerEmail: request.booking.customerEmail,
-              experienceName: request.booking.experienceName,
-              location: request.booking.location,
-              appointmentDateTime:
-                request.booking.appointmentDateTime,
-              status: "REJECTED",
-              ownerName: profile.name,
-              ownerEmail: profile.email,
-              ownerPhone: profile.phone,
-            });
-          } catch (emailError: unknown) {
-            console.error(
-              "The booking was rejected, but the customer email notification could not be sent:",
-              emailError,
-            );
-
-            rejectionEmailWarning =
-              " The booking was updated, but the customer email notification could not be sent.";
-          }
-
           setMessage(
-            `${request.booking.customerName}'s booking was rejected. The customer can view the update in My Bookings.` +
-              rejectionEmailWarning,
+            `${request.booking.customerName}'s booking was rejected. The customer can view the update in My Bookings.`,
           );
         }
       } catch (notificationError: unknown) {
@@ -2448,7 +2399,7 @@ function DashboardContent({
         message: draft,
         messageType: "CHAT",
         readByModeratorAt: new Date().toISOString(),
-      } as any);
+      });
 
       if (result.errors?.length || !result.data) {
         throw new Error(
@@ -2485,18 +2436,61 @@ function DashboardContent({
       const currentUser = await getCurrentUser();
       const reviewedAt = new Date().toISOString();
 
-      const requestResult = await client.models.OwnerAccessRequest.update({
-        id: request.id,
-        status,
-        reviewedByUserId: currentUser.userId,
-        reviewedAt,
-      } as any);
+      let updatedPartnerRequest: OwnerAccessRequest;
 
-      if (requestResult.errors?.length || !requestResult.data) {
-        throw new Error(
-          requestResult.errors?.map((error) => error.message).join(", ") ||
-            "The partner request was not updated.",
-        );
+      if (status === "APPROVED") {
+        console.log("Calling approveOwnerRequest backend mutation:", request.id);
+
+        const approvalResult = await client.mutations.approveOwnerRequest({
+          requestId: request.id,
+        });
+
+        if (approvalResult.errors?.length) {
+          throw new Error(
+            approvalResult.errors.map((error) => error.message).join(", "),
+          );
+        }
+
+        if (approvalResult.data !== "APPROVED") {
+          throw new Error(
+            "The backend did not confirm the owner request approval.",
+          );
+        }
+
+        const refreshedRequestResult =
+          await client.models.OwnerAccessRequest.get({
+            id: request.id,
+          });
+
+        if (
+          refreshedRequestResult.errors?.length ||
+          !refreshedRequestResult.data
+        ) {
+          throw new Error(
+            refreshedRequestResult.errors
+              ?.map((error) => error.message)
+              .join(", ") ||
+              "The approved partner request could not be reloaded.",
+          );
+        }
+
+        updatedPartnerRequest = refreshedRequestResult.data;
+      } else {
+        const requestResult = await client.models.OwnerAccessRequest.update({
+          id: request.id,
+          status,
+          reviewedByUserId: currentUser.userId,
+          reviewedAt,
+        });
+
+        if (requestResult.errors?.length || !requestResult.data) {
+          throw new Error(
+            requestResult.errors?.map((error) => error.message).join(", ") ||
+              "The partner request was not updated.",
+          );
+        }
+
+        updatedPartnerRequest = requestResult.data;
       }
 
       const messageResult = await client.models.OwnerAccessMessage.create({
@@ -2516,7 +2510,7 @@ function DashboardContent({
             ? "REQUEST_APPROVED"
             : "REQUEST_REJECTED",
         readByModeratorAt: reviewedAt,
-      } as any);
+      });
 
       if (messageResult.errors?.length || !messageResult.data) {
         throw new Error(
@@ -2525,26 +2519,6 @@ function DashboardContent({
         );
       }
 
-      let emailWarning = "";
-
-      try {
-        await sendPartnerDecisionEmail({
-          applicantName: request.applicantName,
-          applicantEmail: request.applicantEmail,
-          status,
-          moderatorNotes: request.moderatorNotes,
-        });
-      } catch (emailError: unknown) {
-        console.error(
-          "Partner request status was updated, but the EmailJS notification could not be sent:",
-          emailError,
-        );
-
-        emailWarning =
-          " The request was updated, but the email notification could not be sent.";
-      }
-
-      const updatedPartnerRequest = requestResult.data;
       const createdDecisionMessage = messageResult.data;
 
       setPartnerRequestHistory((current) =>
@@ -2560,6 +2534,7 @@ function DashboardContent({
               item.id === request.id ? updatedPartnerRequest : item,
             ),
       );
+
       setPartnerMessagesByRequest((current) => ({
         ...current,
         [request.id]: [
@@ -2567,11 +2542,11 @@ function DashboardContent({
           createdDecisionMessage,
         ],
       }));
+
       setMessage(
-        (status === "APPROVED"
-          ? `${request.applicantName}'s experience partner request was approved.`
-          : `${request.applicantName}'s experience partner request was rejected.`) +
-          emailWarning,
+        status === "APPROVED"
+          ? `${request.applicantName}'s experience partner request was approved and the experience was created.`
+          : `${request.applicantName}'s experience partner request was rejected.`,
       );
     } catch (error: unknown) {
       console.error("Could not update partner request:", error);
@@ -2666,6 +2641,11 @@ function DashboardContent({
             <p>Signed in as {userEmail}</p>
           </div>
 
+          <div className="owner-dashboard-header-actions">
+            <button type="button" onClick={signOut}>
+              Sign Out
+            </button>
+          </div>
         </header>
 
         <section className="dashboard-section">
@@ -2717,6 +2697,13 @@ function DashboardContent({
           <small>Dashboard version: Pending List 2026-07-31</small>
         </div>
 
+        <div className="owner-dashboard-header-actions">
+         
+
+          <button type="button" onClick={signOut}>
+            Sign Out
+          </button>
+        </div>
       </header>
 
       {message && <p className="dashboard-message">{message}</p>}
@@ -3508,7 +3495,6 @@ function DashboardContent({
                         <ExperienceImage
                           imagePath={experience.imageUrl}
                           experienceName={experience.name}
-                         className="experience-card-image" 
                         />
                       ) : (
                         <div className="experience-image-placeholder">
@@ -4471,8 +4457,9 @@ function DashboardContent({
 export default function OwnerDashboard() {
   return (
     <Authenticator>
-      {({ user }) => (
+      {({ signOut, user }) => (
         <DashboardContent
+          signOut={signOut}
           userEmail={user?.signInDetails?.loginId ?? "Signed-in owner"}
         />
       )}

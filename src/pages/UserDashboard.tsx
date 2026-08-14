@@ -486,7 +486,7 @@ const navigate = useNavigate();
           id: profile.id,
           userId: currentUser.userId,
           ...profileData,
-        } as any);
+        });
 
         if (result.errors?.length) {
           throw new Error(
@@ -505,7 +505,7 @@ const navigate = useNavigate();
           userId: currentUser.userId,
           rewardPoints: 0,
           ...profileData,
-        } as any);
+        });
 
         if (result.errors?.length) {
           throw new Error(
@@ -581,7 +581,7 @@ const navigate = useNavigate();
               await client.models.BookingMessage.update({
                 id: bookingMessage.id,
                 readByCustomerAt: readAt,
-              } as any);
+              });
 
             if (updateResult.errors?.length) {
               throw new Error(
@@ -711,7 +711,7 @@ const navigate = useNavigate();
         message: draft,
         messageType: "CHAT",
         readByCustomerAt: new Date().toISOString(),
-      } as any);
+      });
 
       if (result.errors?.length) {
         throw new Error(
@@ -817,7 +817,7 @@ const navigate = useNavigate();
         id: booking.id,
         status: "CANCELLED",
         paymentStatus: "CANCELLED",
-      } as any);
+      });
 
       if (bookingResult.errors?.length) {
         throw new Error(
@@ -834,7 +834,7 @@ const navigate = useNavigate();
           await client.models.ExperienceCalendarEvent.update({
             id: calendarEvent.id,
             status: "CANCELLED",
-          } as any);
+          });
 
         if (eventResult.errors?.length) {
           throw new Error(
@@ -880,7 +880,7 @@ const navigate = useNavigate();
             : "The customer cancelled this booking.",
           messageType: "BOOKING_CANCELLED",
           readByCustomerAt: new Date().toISOString(),
-        } as any);
+        });
 
       if (messageResult.errors?.length) {
         throw new Error(
@@ -1097,6 +1097,17 @@ const navigate = useNavigate();
     [profile?.firstName, profile?.lastName].filter(Boolean).join(" ") ||
     "Create Your Profile";
 
+  const isProfileComplete = Boolean(
+    profile?.firstName?.trim() &&
+      profile?.lastName?.trim() &&
+      profile?.ownerEmail?.trim() &&
+      profile?.phoneNumber?.trim() &&
+      profile?.address?.trim() &&
+      profile?.city?.trim() &&
+      profile?.state?.trim() &&
+      profile?.zip?.trim(),
+  );
+
   return (
     <main style={styles.page}>
       <section style={styles.hero}>
@@ -1146,13 +1157,39 @@ const navigate = useNavigate();
       </div>
 
 {ownerRequestStatus === "NONE" && (
-  <button
-    type="button"
-    onClick={() => navigate("/offer-experiences")}
-    style={styles.bookingsButton}
-  >
-    Become an Experience Partner
-  </button>
+  <div>
+    <button
+      type="button"
+      disabled={!isProfileComplete}
+      onClick={() => {
+        if (!isProfileComplete) {
+          return;
+        }
+
+        navigate("/offer-experiences");
+      }}
+      style={{
+        ...styles.bookingsButton,
+        opacity: isProfileComplete ? 1 : 0.55,
+        cursor: isProfileComplete ? "pointer" : "not-allowed",
+      }}
+    >
+      Become an Experience Partner
+    </button>
+
+    {!isProfileComplete && (
+      <p
+        style={{
+          marginTop: 8,
+          marginBottom: 0,
+          color: "#666",
+          fontSize: 14,
+        }}
+      >
+        Complete your user profile before requesting to become an Experience Partner.
+      </p>
+    )}
+  </div>
 )}
 
 {ownerRequestStatus === "PENDING" && (
@@ -2677,7 +2714,7 @@ const styles = {
 function AuthenticatedUserDashboard() {
   return (
     <Authenticator>
-      {({  user }) => (
+      {({ signOut, user }) => (
         <>
           <header
             style={{
@@ -2697,7 +2734,9 @@ function AuthenticatedUserDashboard() {
               </strong>
             </div>
 
-            
+            <button type="button" onClick={signOut}>
+              Sign Out
+            </button>
           </header>
 
           <UserDashboard />
