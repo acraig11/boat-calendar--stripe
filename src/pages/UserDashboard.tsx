@@ -486,7 +486,7 @@ const navigate = useNavigate();
           id: profile.id,
           userId: currentUser.userId,
           ...profileData,
-        });
+        } as any);
 
         if (result.errors?.length) {
           throw new Error(
@@ -505,7 +505,7 @@ const navigate = useNavigate();
           userId: currentUser.userId,
           rewardPoints: 0,
           ...profileData,
-        });
+        } as any);
 
         if (result.errors?.length) {
           throw new Error(
@@ -581,7 +581,7 @@ const navigate = useNavigate();
               await client.models.BookingMessage.update({
                 id: bookingMessage.id,
                 readByCustomerAt: readAt,
-              });
+              } as any);
 
             if (updateResult.errors?.length) {
               throw new Error(
@@ -711,7 +711,7 @@ const navigate = useNavigate();
         message: draft,
         messageType: "CHAT",
         readByCustomerAt: new Date().toISOString(),
-      });
+      } as any);
 
       if (result.errors?.length) {
         throw new Error(
@@ -817,7 +817,7 @@ const navigate = useNavigate();
         id: booking.id,
         status: "CANCELLED",
         paymentStatus: "CANCELLED",
-      });
+      } as any);
 
       if (bookingResult.errors?.length) {
         throw new Error(
@@ -834,7 +834,7 @@ const navigate = useNavigate();
           await client.models.ExperienceCalendarEvent.update({
             id: calendarEvent.id,
             status: "CANCELLED",
-          });
+          } as any);
 
         if (eventResult.errors?.length) {
           throw new Error(
@@ -880,7 +880,7 @@ const navigate = useNavigate();
             : "The customer cancelled this booking.",
           messageType: "BOOKING_CANCELLED",
           readByCustomerAt: new Date().toISOString(),
-        });
+        } as any);
 
       if (messageResult.errors?.length) {
         throw new Error(
