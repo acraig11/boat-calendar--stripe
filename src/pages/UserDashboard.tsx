@@ -431,6 +431,69 @@ const navigate = useNavigate();
     setIsEditing(false);
   }
 
+  async function syncOwnerProfile(
+    userId: string,
+    firstName: string,
+    lastName: string,
+    email: string,
+    phoneNumber: string,
+  ) {
+    const ownerResult =
+      await client.models.ExperienceOwnerProfile.list({
+        filter: {
+          userId: {
+            eq: userId,
+          },
+        },
+      });
+
+    if (ownerResult.errors?.length) {
+      throw new Error(
+        ownerResult.errors
+          .map((error) => error.message)
+          .join(", "),
+      );
+    }
+
+    const ownerProfile = ownerResult.data[0];
+
+    if (!ownerProfile) {
+      return;
+    }
+
+    const fullName = [firstName, lastName]
+      .filter(Boolean)
+      .join(" ")
+      .trim();
+
+    const updateResult =
+      await client.models.ExperienceOwnerProfile.update({
+        id: ownerProfile.id,
+        name: fullName,
+        email,
+        phone: phoneNumber || undefined,
+      } as any);
+
+    if (updateResult.errors?.length) {
+      throw new Error(
+        updateResult.errors
+          .map((error) => error.message)
+          .join(", "),
+      );
+    }
+
+    if (!updateResult.data) {
+      throw new Error(
+        "The experience owner profile could not be synchronized.",
+      );
+    }
+
+    console.log(
+      "OWNER PROFILE SYNCHRONIZED:",
+      updateResult.data.id,
+    );
+  }
+
   async function saveProfile(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -498,6 +561,14 @@ const navigate = useNavigate();
           throw new Error("The user profile was not updated.");
         }
 
+        await syncOwnerProfile(
+          currentUser.userId,
+          trimmedFirstName,
+          trimmedLastName,
+          profileData.ownerEmail ?? "",
+          trimmedPhoneNumber,
+        );
+
         await loadProfile();
         setMessage("User profile updated.");
       } else {
@@ -516,6 +587,14 @@ const navigate = useNavigate();
         if (!result.data) {
           throw new Error("The user profile was not created.");
         }
+
+        await syncOwnerProfile(
+          currentUser.userId,
+          trimmedFirstName,
+          trimmedLastName,
+          profileData.ownerEmail ?? "",
+          trimmedPhoneNumber,
+        );
 
         await loadProfile();
         setMessage("User profile created.");
