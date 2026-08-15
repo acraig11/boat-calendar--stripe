@@ -849,6 +849,13 @@
               "isRequired": false,
               "attributes": []
             },
+            "ownerEmail": {
+              "name": "ownerEmail",
+              "isArray": false,
+              "type": "AWSEmail",
+              "isRequired": false,
+              "attributes": []
+            },
             "owner": {
               "name": "owner",
               "isArray": false,

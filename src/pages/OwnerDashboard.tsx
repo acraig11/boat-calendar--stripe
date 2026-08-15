@@ -871,6 +871,7 @@ function DashboardContent({
                       latestAccessRequest.estimatedPrice ?? undefined,
                     imageUrl: publicExperienceImagePath,
                     ownerProfileId: currentProfile.id,
+                    ownerEmail: currentProfile.email,
                   } as any);
 
                 if (
@@ -1323,6 +1324,7 @@ function DashboardContent({
           estimatedPrice: numericPrice,
           imageUrl: uploadedImagePath ?? undefined,
           ownerProfileId: profile.id,
+          ownerEmail: profile.email,
         } as any);
 
         if (result.errors?.length) {

@@ -145,6 +145,7 @@ const schema = a
         experienceType: a.string(),
         ownerProfileId: a.id().required(),
         ownerAccessRequestId: a.id(),
+        ownerEmail: a.email(),
 
         // Explicit owner field so the approval Lambda can assign
         // ownership to the approved applicant.
