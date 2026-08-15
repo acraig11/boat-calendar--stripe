@@ -2,6 +2,7 @@ import { Amplify } from "aws-amplify";
 import { generateClient } from "aws-amplify/data";
 import { getAmplifyDataClientConfig } from "@aws-amplify/backend/function/runtime";
 import { env } from "$amplify/env/approve-owner-request";
+import { CopyObjectCommand, S3Client } from "@aws-sdk/client-s3";
 
 import type { Schema } from "../../data/resource";
 
@@ -11,6 +12,7 @@ const { resourceConfig, libraryOptions } =
 Amplify.configure(resourceConfig, libraryOptions);
 
 const client = generateClient<Schema>();
+const s3Client = new S3Client({});
 
 const MODERATOR_USER_ID =
   "14588428-20f1-706f-f6d7-308f21156444";
@@ -34,7 +36,76 @@ function messages(
 function firstExperienceType(
   values: readonly (string | null)[] | null | undefined,
 ): string {
-  return values?.find((value): value is string => Boolean(value?.trim()))?.trim() ?? "";
+  return values?.find(
+    (value): value is string => Boolean(value?.trim()),
+  )?.trim() ?? "";
+}
+
+function imageExtension(path: string): string {
+  const fileName = path.split("/").pop() ?? "";
+  const extension = fileName.includes(".")
+    ? fileName.split(".").pop()?.toLowerCase()
+    : undefined;
+
+  if (
+    extension === "png" ||
+    extension === "jpg" ||
+    extension === "jpeg" ||
+    extension === "webp" ||
+    extension === "gif"
+  ) {
+    return extension;
+  }
+
+  return "jpg";
+}
+
+function encodeCopySource(bucketName: string, key: string): string {
+  const encodedKey = key
+    .split("/")
+    .map((segment) => encodeURIComponent(segment))
+    .join("/");
+
+  return `${bucketName}/${encodedKey}`;
+}
+
+async function copyPartnerImageToPublicExperienceImages(
+  sourcePath: string,
+  requestId: string,
+  applicantUserId: string,
+): Promise<string> {
+  if (sourcePath.startsWith("experience-images/")) {
+    return sourcePath;
+  }
+
+  if (!sourcePath.startsWith("partner-request-images/")) {
+    throw new Error(
+      `Unsupported owner-request image path: ${sourcePath}`,
+    );
+  }
+
+ const bucketName = env.EXPERIENCE_IMAGES_BUCKET_NAME;
+
+  if (!bucketName) {
+    throw new Error(
+      "The experienceImages Storage bucket is not available to the approval function.",
+    );
+  }
+
+  const extension = imageExtension(sourcePath);
+
+  const destinationPath =
+    `experience-images/${applicantUserId}/${requestId}.${extension}`;
+
+  await s3Client.send(
+    new CopyObjectCommand({
+      Bucket: bucketName,
+      CopySource: encodeCopySource(bucketName, sourcePath),
+      Key: destinationPath,
+    }),
+  );
+
+  return destinationPath;
 }
 
 export const handler: Schema["approveOwnerRequest"]["functionHandler"] =
@@ -42,8 +113,6 @@ export const handler: Schema["approveOwnerRequest"]["functionHandler"] =
     const identity = event.identity as CognitoIdentity | null | undefined;
     const signedInUserId = identity?.sub?.trim() ?? "";
 
-    // Defense in depth: the mutation is authenticated, but only the fixed
-    // moderator Cognito user may actually approve/provision an owner.
     if (signedInUserId !== MODERATOR_USER_ID) {
       throw new Error(
         "Only the Coast Life moderator can approve owner requests.",
@@ -118,12 +187,6 @@ export const handler: Schema["approveOwnerRequest"]["functionHandler"] =
       request.businessName?.trim() ||
       `${applicantName}'s ${experienceType} Experience`;
 
-    // ------------------------------------------------------------
-    // 1. Find or create the applicant's owner profile.
-    //
-    // Existing profiles are preserved. New profiles use the applicant's
-    // Cognito sub as their record id, making retries deterministic.
-    // ------------------------------------------------------------
     const profileListResult =
       await client.models.ExperienceOwnerProfile.list({
         filter: {
@@ -151,15 +214,10 @@ export const handler: Schema["approveOwnerRequest"]["functionHandler"] =
           name: applicantName,
           email: applicantEmail,
           phone: request.applicantPhone?.trim() || undefined,
-
-          // allow.owner() automatically adds this field to the API.
-          // Setting it explicitly assigns ownership to the applicant,
-          // not the moderator/Lambda.
           owner: applicantUserId,
         });
 
       if (createProfileResult.errors?.length || !createProfileResult.data) {
-        // A simultaneous retry may have created the deterministic profile id.
         const retryProfileResult =
           await client.models.ExperienceOwnerProfile.get({
             id: applicantUserId,
@@ -179,13 +237,6 @@ export const handler: Schema["approveOwnerRequest"]["functionHandler"] =
       }
     }
 
-    // ------------------------------------------------------------
-    // 2. Create the initial Experience exactly once.
-    //
-    // The Experience id is the OwnerAccessRequest id. A second invocation
-    // cannot create another row with the same id. ownerAccessRequestId is
-    // also populated for traceability.
-    // ------------------------------------------------------------
     const existingExperienceResult =
       await client.models.Experience.get({
         id: requestId,
@@ -199,6 +250,13 @@ export const handler: Schema["approveOwnerRequest"]["functionHandler"] =
     }
 
     if (!existingExperienceResult.data) {
+      const publicExperienceImageUrl =
+        await copyPartnerImageToPublicExperienceImages(
+          experienceImageUrl,
+          requestId,
+          applicantUserId,
+        );
+
       const createExperienceResult =
         await client.models.Experience.create({
           id: requestId,
@@ -206,12 +264,10 @@ export const handler: Schema["approveOwnerRequest"]["functionHandler"] =
           description: request.description?.trim() || undefined,
           location: experienceLocation,
           estimatedPrice: request.estimatedPrice ?? undefined,
-          imageUrl: experienceImageUrl,
+          imageUrl: publicExperienceImageUrl,
           experienceType,
           ownerProfileId: ownerProfile.id,
           ownerAccessRequestId: requestId,
-
-          // Same ownership rule: applicant owns the new Experience.
           owner: applicantUserId,
         });
 
@@ -219,8 +275,6 @@ export const handler: Schema["approveOwnerRequest"]["functionHandler"] =
         createExperienceResult.errors?.length ||
         !createExperienceResult.data
       ) {
-        // Treat a concurrent duplicate create as success if the deterministic
-        // record now exists.
         const retryExperienceResult =
           await client.models.Experience.get({
             id: requestId,
@@ -239,9 +293,6 @@ export const handler: Schema["approveOwnerRequest"]["functionHandler"] =
       }
     }
 
-    // ------------------------------------------------------------
-    // 3. Mark the request approved only after profile + experience exist.
-    // ------------------------------------------------------------
     const updateRequestResult =
       await client.models.OwnerAccessRequest.update({
         id: request.id,

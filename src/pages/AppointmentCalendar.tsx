@@ -75,7 +75,14 @@ function ExperienceImage({
     let isActive = true;
 
     async function loadImage() {
+      console.log("======================================");
+      console.log("EXPERIENCE IMAGE COMPONENT");
+      console.log("EXPERIENCE NAME:", experienceName);
+      console.log("EXPERIENCE IMAGE PATH:", imagePath);
+      console.log("======================================");
+
       if (!imagePath) {
+        console.error("EXPERIENCE HAS NO IMAGE PATH:", experienceName);
         setDisplayUrl("/images/experience-placeholder.png");
         return;
       }
@@ -83,13 +90,21 @@ function ExperienceImage({
       try {
         const result = await getUrl({
           path: imagePath,
+          options: {
+            validateObjectExistence: true,
+          },
         });
+
+        console.log("EXPERIENCE IMAGE URL:", result.url.toString());
 
         if (isActive) {
           setDisplayUrl(result.url.toString());
         }
       } catch (error) {
-        console.error("Could not load experience image:", error);
+        console.error("EXPERIENCE IMAGE LOAD FAILED");
+        console.error("EXPERIENCE:", experienceName);
+        console.error("PATH:", imagePath);
+        console.error("ERROR:", error);
 
         if (isActive) {
           setDisplayUrl("/images/experience-placeholder.png");
@@ -117,6 +132,8 @@ function ExperienceImage({
 }
 
 function AppointmentCalendarContent() {
+  console.log("APPOINTMENT CALENDAR CURRENT VERSION LOADED");
+
   const [searchParams] = useSearchParams();
 
   const navigate = useNavigate();
@@ -417,19 +434,11 @@ function AppointmentCalendarContent() {
       }
 
       const customerProfile =
-  [...profileResult.data]
-    .filter(
-      (record) =>
-        record.firstName ||
-        record.lastName ||
-        record.ownerEmail ||
-        record.phoneNumber,
-    )
-    .sort(
-      (first, second) =>
-        new Date(second.updatedAt).getTime() -
-        new Date(first.updatedAt).getTime(),
-    )[0] ?? null;
+        [...profileResult.data].sort(
+          (first, second) =>
+            new Date(second.updatedAt).getTime() -
+            new Date(first.updatedAt).getTime(),
+        )[0] ?? null;
 
       if (!customerProfile) {
         throw new Error(
@@ -708,6 +717,19 @@ function AppointmentCalendarContent() {
 
   return (
     <main className="experience-page">
+      <div
+        style={{
+          marginBottom: 16,
+          padding: 12,
+          border: "2px solid #b91c1c",
+          borderRadius: 10,
+          background: "#fef2f2",
+          color: "#7f1d1d",
+          fontWeight: 700,
+        }}
+      >
+        IMAGE DEBUG VERSION ACTIVE
+      </div>
       <section className="experience-header">
         <p className="experience-eyebrow">Experiences</p>
 
@@ -822,6 +844,17 @@ function AppointmentCalendarContent() {
 
                 <div className="experience-card-content">
                   <h2>{experience.name}</h2>
+
+                  <p
+                    style={{
+                      fontSize: 12,
+                      color: "#7f1d1d",
+                      wordBreak: "break-all",
+                      margin: "6px 0",
+                    }}
+                  >
+                    DEBUG IMAGE PATH: {experience.imageUrl ?? "NULL"}
+                  </p>
 
                   <p className="experience-location">
                     <span aria-hidden="true">📍</span>

@@ -188,7 +188,7 @@ function ExperienceImage({
       alt={experienceName}
       width="200"
       style={{
-        height: "140px",
+        height: "220px",
         objectFit: "cover",
         borderRadius: "10px",
       }}
@@ -301,7 +301,7 @@ function PartnerRequestImage({
           display: "block",
           width: "100%",
           maxWidth: 520,
-          height: 260,
+          height: 300,
           objectFit: "cover",
           borderRadius: 12,
           border: "1px solid rgba(15, 23, 42, 0.08)",
