@@ -717,19 +717,7 @@ function AppointmentCalendarContent() {
 
   return (
     <main className="experience-page">
-      <div
-        style={{
-          marginBottom: 16,
-          padding: 12,
-          border: "2px solid #b91c1c",
-          borderRadius: 10,
-          background: "#fef2f2",
-          color: "#7f1d1d",
-          fontWeight: 700,
-        }}
-      >
-        IMAGE DEBUG VERSION ACTIVE
-      </div>
+     
       <section className="experience-header">
         <p className="experience-eyebrow">Experiences</p>
 
@@ -845,16 +833,7 @@ function AppointmentCalendarContent() {
                 <div className="experience-card-content">
                   <h2>{experience.name}</h2>
 
-                  <p
-                    style={{
-                      fontSize: 12,
-                      color: "#7f1d1d",
-                      wordBreak: "break-all",
-                      margin: "6px 0",
-                    }}
-                  >
-                    DEBUG IMAGE PATH: {experience.imageUrl ?? "NULL"}
-                  </p>
+                 
 
                   <p className="experience-location">
                     <span aria-hidden="true">📍</span>
