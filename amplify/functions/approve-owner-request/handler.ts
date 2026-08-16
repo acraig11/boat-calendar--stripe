@@ -267,6 +267,7 @@ export const handler: Schema["approveOwnerRequest"]["functionHandler"] =
           imageUrl: publicExperienceImageUrl,
           experienceType,
           ownerProfileId: ownerProfile.id,
+          ownerEmail:applicantEmail,
           ownerAccessRequestId: requestId,
           owner: applicantUserId,
         });
