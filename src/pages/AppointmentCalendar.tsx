@@ -434,12 +434,11 @@ function AppointmentCalendarContent() {
       }
 
       const customerProfile =
-        [...profileResult.data].sort(
-          (first, second) =>
-            new Date(second.updatedAt).getTime() -
-            new Date(first.updatedAt).getTime(),
-        )[0] ?? null;
-
+  profileResult.data.find(
+    (profile) =>
+      profile.firstName?.trim() &&
+      profile.lastName?.trim(),
+  ) ?? null;
       if (!customerProfile) {
         throw new Error(
           "Complete your user profile before requesting a booking.",
@@ -512,6 +511,7 @@ function AppointmentCalendarContent() {
         customerUserId: currentUser.userId,
         customerName,
         customerEmail,
+        ownerEmail: experienceOwnerEmail,
         customerPhone,
         appointmentDateTime: appointmentDateTime.toISOString(),
         experienceId: selectedExperience.id,

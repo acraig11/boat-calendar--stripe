@@ -1014,6 +1014,13 @@
               "isRequired": false,
               "attributes": []
             },
+            "ownerEmail": {
+              "name": "ownerEmail",
+              "isArray": false,
+              "type": "AWSEmail",
+              "isRequired": false,
+              "attributes": []
+            },
             "customerUserId": {
               "name": "customerUserId",
               "isArray": false,

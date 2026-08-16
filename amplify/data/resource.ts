@@ -172,6 +172,7 @@ const schema = a
         customerName: a.string().required(),
         customerEmail: a.email().required(),
         customerPhone: a.string(),
+        ownerEmail: a.email(),
         customerUserId: a.string(),
         appointmentDateTime: a.datetime().required(),
         experienceId: a.id().required(),
