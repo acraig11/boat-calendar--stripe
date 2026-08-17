@@ -98,7 +98,7 @@ const schema = a
         ),
 
         applicantUserId: a.string().required(),
-
+        applicantEmail: a.email(),
         // Keep the moderator email on each message so the intended
         // Coast Life moderator is always explicit.
         moderatorEmail: a.email().required(),

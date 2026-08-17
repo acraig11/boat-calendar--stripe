@@ -2499,6 +2499,7 @@ function DashboardContent({
         ownerAccessRequestId: request.id,
         applicantUserId: request.applicantUserId,
         moderatorEmail: request.moderatorEmail,
+        applicantEmail: request.applicantEmail,
         moderatorUserId: currentUser.userId,
         senderUserId: currentUser.userId,
         senderRole: "SYSTEM",

@@ -388,6 +388,7 @@ function OfferExperiencesContent() {
         await client.models.OwnerAccessMessage.create({
           ownerAccessRequestId: createdRequest.id,
           applicantUserId: currentUser.userId,
+          applicantEmail: email.trim(),
           moderatorEmail: MODERATOR_EMAIL,
           moderatorUserId: MODERATOR_USER_ID,
           senderUserId: currentUser.userId,

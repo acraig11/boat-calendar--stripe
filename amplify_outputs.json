@@ -624,6 +624,13 @@
               "isRequired": true,
               "attributes": []
             },
+            "applicantEmail": {
+              "name": "applicantEmail",
+              "isArray": false,
+              "type": "AWSEmail",
+              "isRequired": false,
+              "attributes": []
+            },
             "moderatorEmail": {
               "name": "moderatorEmail",
               "isArray": false,
