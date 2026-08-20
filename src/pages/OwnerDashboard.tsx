@@ -8,7 +8,11 @@ import { client } from "../lib/amplifyClient";
 import outputs from "../../amplify_outputs.json";
 import "./OwnerDashboard.css";
 import "./OwnerBookingRequests.css";
-
+import { loadConnectAndInitialize } from "@stripe/connect-js";
+import {
+  ConnectAccountOnboarding,
+  ConnectComponentsProvider,
+} from "@stripe/react-connect-js";
 type OwnerProfile = Awaited<
   ReturnType<typeof client.models.ExperienceOwnerProfile.list>
 >["data"][number];
@@ -319,7 +323,11 @@ function DashboardContent({
   userEmail: string;
 }) {
   const navigate = useNavigate();
-
+const [showStripeOnboarding, setShowStripeOnboarding] = useState(false);
+  const [stripeSetupState, setStripeSetupState] = useState<
+    "IDLE" | "CHECKING" | "NEEDS_ONBOARDING" | "ACTIVE" | "ERROR"
+  >("IDLE");
+  const [stripeSetupError, setStripeSetupError] = useState("");
   console.log("OWNER DASHBOARD VERSION: PENDING-LIST-2026-07-31");
 
   const [profile, setProfile] = useState<OwnerProfile | null>(null);
@@ -413,6 +421,169 @@ function DashboardContent({
 
   const experienceImageInputRef = useRef<HTMLInputElement>(null);
 
+async function getStripeApiBaseUrl(): Promise<string> {
+  const stripeApi =
+    (outputs as any).custom?.API?.stripeRestApi?.endpoint;
+
+  if (!stripeApi) {
+    throw new Error(
+      "The Stripe REST API endpoint was not found in amplify_outputs.json.",
+    );
+  }
+
+  return stripeApi.replace(/\/$/, "");
+}
+
+async function getStripeIdToken(): Promise<string> {
+  const session = await fetchAuthSession();
+  const idToken = session.tokens?.idToken?.toString();
+
+  if (!idToken) {
+    throw new Error("No Cognito ID token was found.");
+  }
+
+  return idToken;
+}
+
+async function createConnectedAccountIfNeeded() {
+  const [stripeApi, idToken] = await Promise.all([
+    getStripeApiBaseUrl(),
+    getStripeIdToken(),
+  ]);
+
+  const response = await fetch(
+    `${stripeApi}/create-connected-account`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: idToken,
+        "Content-Type": "application/json",
+      },
+    },
+  );
+
+  const result = await response.json();
+
+  if (!response.ok) {
+    throw new Error(
+      result.message ?? "Could not create Stripe connected account.",
+    );
+  }
+
+  return result;
+}
+
+async function fetchStripeAccountStatus() {
+  const [stripeApi, idToken] = await Promise.all([
+    getStripeApiBaseUrl(),
+    getStripeIdToken(),
+  ]);
+
+  const response = await fetch(
+    `${stripeApi}/stripe-account-status`,
+    {
+      method: "GET",
+      headers: {
+        Authorization: idToken,
+        "Content-Type": "application/json",
+      },
+    },
+  );
+
+  const result = await response.json();
+
+  if (!response.ok) {
+    throw new Error(
+      result.message ?? "Could not check Stripe account status.",
+    );
+  }
+
+  return result as {
+    success?: boolean;
+    hasStripeAccount?: boolean;
+    stripeAccountId?: string | null;
+    detailsSubmitted?: boolean;
+    chargesEnabled?: boolean;
+    payoutsEnabled?: boolean;
+    ready?: boolean;
+  };
+}
+
+async function ensureStripeSetup() {
+  if (!profile) {
+    setStripeSetupState("IDLE");
+    setShowStripeOnboarding(false);
+    return;
+  }
+
+  try {
+    setStripeSetupState("CHECKING");
+    setStripeSetupError("");
+
+    let status = await fetchStripeAccountStatus();
+
+    if (!status.hasStripeAccount) {
+      await createConnectedAccountIfNeeded();
+      status = await fetchStripeAccountStatus();
+    }
+
+    if (status.ready) {
+      setShowStripeOnboarding(false);
+      setStripeSetupState("ACTIVE");
+      return;
+    }
+
+    setStripeSetupState("NEEDS_ONBOARDING");
+    setShowStripeOnboarding(true);
+  } catch (error: unknown) {
+    console.error("Could not prepare Stripe setup:", error);
+    setShowStripeOnboarding(false);
+    setStripeSetupState("ERROR");
+    setStripeSetupError(
+      error instanceof Error
+        ? error.message
+        : "Could not prepare Stripe payments.",
+    );
+  }
+}
+
+async function fetchStripeConnectClientSecret(): Promise<string> {
+  const [stripeApi, idToken] = await Promise.all([
+    getStripeApiBaseUrl(),
+    getStripeIdToken(),
+  ]);
+
+  const response = await fetch(
+    `${stripeApi}/create-account-session`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: idToken,
+        "Content-Type": "application/json",
+      },
+    },
+  );
+
+  const result = await response.json();
+
+  if (!response.ok) {
+    throw new Error(
+      result.message ?? "Could not create Stripe onboarding session.",
+    );
+  }
+
+  if (!result.clientSecret) {
+    throw new Error("Stripe did not return a client secret.");
+  }
+
+  return result.clientSecret;
+}
+const stripeConnectInstance = useRef(
+  loadConnectAndInitialize({
+    publishableKey: import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY,
+    fetchClientSecret: fetchStripeConnectClientSecret,
+  }),
+).current;
   async function loadDashboard() {
     console.log("loadDashboard started");
     setIsLoading(true);
@@ -744,6 +915,28 @@ function DashboardContent({
         !moderator &&
         latestAccessRequest?.status === "APPROVED"
       ) {
+        /*
+         * Do not publish/create the owner's initial experience until Stripe
+         * says the connected account is fully ready to accept payments.
+         *
+         * When onboarding finishes, ConnectAccountOnboarding.onExit calls
+         * loadDashboard() again. At that point this check will pass and the
+         * initial experience will be created automatically.
+         */
+        const stripeStatus = await fetchStripeAccountStatus();
+
+        if (!stripeStatus.ready) {
+          console.log(
+            "Stripe onboarding is not complete. Initial experience creation is being deferred.",
+            {
+              ownerProfileId: currentProfile.id,
+              hasStripeAccount: stripeStatus.hasStripeAccount ?? false,
+              detailsSubmitted: stripeStatus.detailsSubmitted ?? false,
+              chargesEnabled: stripeStatus.chargesEnabled ?? false,
+              payoutsEnabled: stripeStatus.payoutsEnabled ?? false,
+            },
+          );
+        } else {
         const initialExperienceType =
           latestAccessRequest.experienceTypes?.[0]?.trim() ?? "";
 
@@ -918,6 +1111,7 @@ function DashboardContent({
             );
           }
         }
+        }
       }
 
       console.log("ALL EXPERIENCES:", allExperiences);
@@ -1024,14 +1218,26 @@ function DashboardContent({
   }, []);
 
   useEffect(() => {
+    if (
+      ownerAccessStatus === "APPROVED" &&
+      profile &&
+      !isModerator
+    ) {
+      void ensureStripeSetup();
+    } else if (!profile || ownerAccessStatus !== "APPROVED") {
+      setStripeSetupState("IDLE");
+      setShowStripeOnboarding(false);
+    }
+  }, [ownerAccessStatus, profile?.id, isModerator]);
+
+  useEffect(() => {
     return () => {
       if (experienceImagePreview) {
         URL.revokeObjectURL(experienceImagePreview);
       }
     };
   }, [experienceImagePreview]);
-
-  async function createProfile(event: React.FormEvent<HTMLFormElement>) {
+async function createProfile(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     const trimmedName = profileName.trim();
@@ -2701,7 +2907,17 @@ function DashboardContent({
         </div>
 
         <div className="owner-dashboard-header-actions">
-         
+          {!isModerator && stripeSetupState === "CHECKING" && (
+            <span>Checking Stripe payments...</span>
+          )}
+
+          {!isModerator && stripeSetupState === "ACTIVE" && (
+            <span>Stripe Payments Active</span>
+          )}
+
+          {!isModerator && stripeSetupState === "ERROR" && (
+            <span>{stripeSetupError || "Stripe setup needs attention."}</span>
+          )}
 
           <button type="button" onClick={signOut}>
             Sign Out
@@ -2710,6 +2926,42 @@ function DashboardContent({
       </header>
 
       {message && <p className="dashboard-message">{message}</p>}
+
+      {!isModerator && stripeSetupState === "NEEDS_ONBOARDING" && showStripeOnboarding && (
+        <section className="dashboard-section">
+          <h2>Complete Stripe Payment Setup</h2>
+          <p>
+            Complete the Stripe setup below so Coast Life can send booking
+            payments to your connected merchant account.
+          </p>
+
+          <div
+            style={{
+              marginTop: 20,
+              padding: 20,
+              border: "1px solid #dbe2ea",
+              borderRadius: 14,
+              background: "#ffffff",
+            }}
+          >
+            <ConnectComponentsProvider connectInstance={stripeConnectInstance}>
+              <ConnectAccountOnboarding
+                onExit={() => {
+                  void ensureStripeSetup();
+                  void loadDashboard();
+                }}
+              />
+            </ConnectComponentsProvider>
+          </div>
+        </section>
+      )}
+
+      {!isModerator && stripeSetupState === "ERROR" && (
+        <section className="dashboard-section">
+          <h2>Stripe Payment Setup</h2>
+          <p>{stripeSetupError}</p>
+        </section>
+      )}
 
       {!profile ? (
         <section className="dashboard-section">

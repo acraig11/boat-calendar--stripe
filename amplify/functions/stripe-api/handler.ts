@@ -2,10 +2,12 @@ import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import {
   DynamoDBDocumentClient,
   GetCommand,
+  PutCommand,
   ScanCommand,
   UpdateCommand,
 } from "@aws-sdk/lib-dynamodb";
 import Stripe from "stripe";
+import { CopyObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { env } from "$amplify/env/stripe-api";
 
 type ApiGatewayEvent = {
@@ -57,10 +59,25 @@ type OwnerProfileRecord = {
   userId?: string;
   name?: string;
   email?: string;
-};
 
+  stripeAccountId?: string;
+  stripeOnboardingComplete?: boolean;
+  stripeChargesEnabled?: boolean;
+  stripePayoutsEnabled?: boolean;
+};
 const dynamoDb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
+const s3Client = new S3Client({});
 const stripe = new Stripe(env.STRIPE_SECRET_KEY);
+
+const COAST_LIFE_FEE_PERCENT = 10;
+
+function calculateCoastLifeFee(amountInCents: number): number {
+  const calculatedFee = Math.round(
+    amountInCents * (COAST_LIFE_FEE_PERCENT / 100),
+  );
+
+  return Math.max(1, Math.min(calculatedFee, amountInCents - 1));
+}
 
 function jsonResponse(
   statusCode: number,
@@ -112,11 +129,328 @@ async function findOwnerProfileForUser(
     new ScanCommand({
       TableName: env.OWNER_PROFILE_TABLE_NAME,
       FilterExpression: "userId = :userId",
-      ExpressionAttributeValues: { ":userId": userId },
-      ProjectionExpression: "id, userId",
+      ExpressionAttributeValues: {
+        ":userId": userId,
+      },
     }),
   );
+
   return (result.Items?.[0] as OwnerProfileRecord | undefined) ?? null;
+}
+
+function isStripeConnectedAccountAccessError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+
+  const message = error.message.toLowerCase();
+
+  return (
+    message.includes("does not have access to account") ||
+    message.includes("account does not exist") ||
+    message.includes("application access may have been revoked") ||
+    message.includes("no such account")
+  );
+}
+
+async function handleCreateConnectedAccount(
+  event: ApiGatewayEvent,
+): Promise<ApiGatewayResponse> {
+  const userId =
+    event.requestContext?.authorizer?.claims?.sub?.trim() ?? "";
+
+  if (!userId) {
+    return jsonResponse(401, {
+      success: false,
+      message: "You must be signed in.",
+    });
+  }
+
+  const ownerProfile = await findOwnerProfileForUser(userId);
+
+  if (!ownerProfile) {
+    return jsonResponse(404, {
+      success: false,
+      message: "Experience owner profile not found.",
+    });
+  }
+
+  if (!ownerProfile.email?.trim()) {
+    return jsonResponse(400, {
+      success: false,
+      message:
+        "The experience owner profile must have an email address before Stripe onboarding can begin.",
+    });
+  }
+
+  const staleStripeAccountId = ownerProfile.stripeAccountId?.trim() ?? "";
+  let replacingStaleAccount = false;
+
+  if (staleStripeAccountId) {
+    try {
+      const existingAccount =
+        await stripe.accounts.retrieve(staleStripeAccountId);
+
+      return jsonResponse(200, {
+        success: true,
+        alreadyExists: true,
+        replacedStaleAccount: false,
+        stripeAccountId: existingAccount.id,
+        chargesEnabled: existingAccount.charges_enabled,
+        payoutsEnabled: existingAccount.payouts_enabled,
+        detailsSubmitted: existingAccount.details_submitted,
+      });
+    } catch (error: unknown) {
+      if (!isStripeConnectedAccountAccessError(error)) {
+        throw error;
+      }
+
+      replacingStaleAccount = true;
+
+      console.warn(
+        "Stored Stripe connected account is inaccessible. Creating a replacement.",
+        {
+          ownerProfileId: ownerProfile.id,
+          staleStripeAccountId,
+          reason: error instanceof Error ? error.message : String(error),
+        },
+      );
+    }
+  }
+
+  const idempotencyKey = replacingStaleAccount
+    ? `coastlife-owner-replace-${ownerProfile.id}-${staleStripeAccountId}`
+    : `coastlife-owner-v6-${ownerProfile.id}`;
+
+  const account = await stripe.accounts.create(
+    {
+      country: "US",
+      email: ownerProfile.email.trim(),
+
+      controller: {
+        fees: {
+          payer: "account",
+        },
+        losses: {
+          payments: "stripe",
+        },
+        requirement_collection: "stripe",
+        stripe_dashboard: {
+          type: "full",
+        },
+      },
+
+      metadata: {
+        coastLifeOwnerProfileId: ownerProfile.id,
+        coastLifeUserId: userId,
+      },
+    },
+    {
+      idempotencyKey,
+    },
+  );
+
+  await dynamoDb.send(
+    new UpdateCommand({
+      TableName: env.OWNER_PROFILE_TABLE_NAME,
+      Key: {
+        id: ownerProfile.id,
+      },
+      UpdateExpression: `
+        SET
+          stripeAccountId = :stripeAccountId,
+          stripeOnboardingComplete = :stripeOnboardingComplete,
+          stripeChargesEnabled = :stripeChargesEnabled,
+          stripePayoutsEnabled = :stripePayoutsEnabled
+      `,
+      ExpressionAttributeValues: {
+        ":stripeAccountId": account.id,
+        ":stripeOnboardingComplete":
+          account.details_submitted ?? false,
+        ":stripeChargesEnabled":
+          account.charges_enabled ?? false,
+        ":stripePayoutsEnabled":
+          account.payouts_enabled ?? false,
+      },
+    }),
+  );
+
+  console.log("Stripe connected account created.", {
+    ownerProfileId: ownerProfile.id,
+    previousStripeAccountId: staleStripeAccountId || null,
+    stripeAccountId: account.id,
+    replacedStaleAccount: replacingStaleAccount,
+  });
+
+  return jsonResponse(200, {
+    success: true,
+    alreadyExists: false,
+    replacedStaleAccount: replacingStaleAccount,
+    previousStripeAccountId: staleStripeAccountId || null,
+    stripeAccountId: account.id,
+    chargesEnabled: account.charges_enabled,
+    payoutsEnabled: account.payouts_enabled,
+    detailsSubmitted: account.details_submitted,
+  });
+}
+
+async function handleCreateAccountSession(
+  event: ApiGatewayEvent,
+): Promise<ApiGatewayResponse> {
+  const userId =
+    event.requestContext?.authorizer?.claims?.sub?.trim() ?? "";
+
+  if (!userId) {
+    return jsonResponse(401, {
+      success: false,
+      message: "You must be signed in.",
+    });
+  }
+
+  const ownerProfile = await findOwnerProfileForUser(userId);
+
+  if (!ownerProfile) {
+    return jsonResponse(404, {
+      success: false,
+      message: "Experience owner profile not found.",
+    });
+  }
+
+  const stripeAccountId = ownerProfile.stripeAccountId?.trim();
+
+  if (!stripeAccountId) {
+    return jsonResponse(409, {
+      success: false,
+      message:
+        "A Stripe connected account must be created before onboarding can begin.",
+    });
+  }
+
+  const accountSession = await stripe.accountSessions.create({
+    account: stripeAccountId,
+    components: {
+      account_onboarding: {
+        enabled: true,
+       
+      },
+    },
+  });
+
+  return jsonResponse(200, {
+    success: true,
+    stripeAccountId,
+    clientSecret: accountSession.client_secret,
+  });
+}
+
+async function handleStripeAccountStatus(
+  event: ApiGatewayEvent,
+): Promise<ApiGatewayResponse> {
+  const userId =
+    event.requestContext?.authorizer?.claims?.sub?.trim() ?? "";
+
+  if (!userId) {
+    return jsonResponse(401, {
+      success: false,
+      message: "You must be signed in.",
+    });
+  }
+
+  const ownerProfile = await findOwnerProfileForUser(userId);
+
+  if (!ownerProfile) {
+    return jsonResponse(404, {
+      success: false,
+      message: "Experience owner profile not found.",
+    });
+  }
+
+  const stripeAccountId = ownerProfile.stripeAccountId?.trim();
+
+  if (!stripeAccountId) {
+    return jsonResponse(200, {
+      success: true,
+      hasStripeAccount: false,
+      requiresReplacement: false,
+      stripeAccountId: null,
+      onboardingComplete: false,
+      ready: false,
+      chargesEnabled: false,
+      payoutsEnabled: false,
+      detailsSubmitted: false,
+    });
+  }
+
+  let account: Stripe.Account;
+
+  try {
+    account = await stripe.accounts.retrieve(stripeAccountId);
+  } catch (error: unknown) {
+    if (!isStripeConnectedAccountAccessError(error)) {
+      throw error;
+    }
+
+    console.warn(
+      "Stripe status check found a stale/inaccessible connected account.",
+      {
+        ownerProfileId: ownerProfile.id,
+        stripeAccountId,
+        reason: error instanceof Error ? error.message : String(error),
+      },
+    );
+
+    return jsonResponse(200, {
+      success: true,
+      hasStripeAccount: false,
+      requiresReplacement: true,
+      staleStripeAccountId: stripeAccountId,
+      stripeAccountId: null,
+      onboardingComplete: false,
+      ready: false,
+      chargesEnabled: false,
+      payoutsEnabled: false,
+      detailsSubmitted: false,
+    });
+  }
+
+  const detailsSubmitted = account.details_submitted ?? false;
+  const chargesEnabled = account.charges_enabled ?? false;
+  const payoutsEnabled = account.payouts_enabled ?? false;
+
+  const ready =
+    detailsSubmitted &&
+    chargesEnabled &&
+    payoutsEnabled;
+
+  await dynamoDb.send(
+    new UpdateCommand({
+      TableName: env.OWNER_PROFILE_TABLE_NAME,
+      Key: {
+        id: ownerProfile.id,
+      },
+      UpdateExpression: `
+        SET
+          stripeOnboardingComplete = :onboardingComplete,
+          stripeChargesEnabled = :chargesEnabled,
+          stripePayoutsEnabled = :payoutsEnabled
+      `,
+      ExpressionAttributeValues: {
+        ":onboardingComplete": ready,
+        ":chargesEnabled": chargesEnabled,
+        ":payoutsEnabled": payoutsEnabled,
+      },
+    }),
+  );
+
+  return jsonResponse(200, {
+    success: true,
+    hasStripeAccount: true,
+    requiresReplacement: false,
+    stripeAccountId,
+    onboardingComplete: ready,
+    ready,
+    detailsSubmitted,
+    chargesEnabled,
+    payoutsEnabled,
+  });
 }
 
 async function getBooking(bookingId: string): Promise<BookingRecord | null> {
@@ -156,6 +490,319 @@ async function getOwnerProfileById(
     }),
   );
   return (result.Item as OwnerProfileRecord | undefined) ?? null;
+}
+
+async function getStripeConnectedAccountForBooking(
+  booking: BookingRecord,
+): Promise<{ ownerProfile: OwnerProfileRecord; stripeAccountId: string }> {
+  const ownerProfile = await getOwnerProfileById(booking.ownerProfileId);
+
+  if (!ownerProfile) {
+    throw new Error(
+      "The experience owner profile for this booking could not be found.",
+    );
+  }
+
+  const stripeAccountId = ownerProfile.stripeAccountId?.trim();
+
+  if (!stripeAccountId) {
+    throw new Error(
+      "The experience owner has not completed Stripe account setup.",
+    );
+  }
+
+  const connectedAccount = await stripe.accounts.retrieve(stripeAccountId);
+
+  if (!connectedAccount.charges_enabled) {
+    throw new Error(
+      "The experience owner's Stripe account is not ready to accept payments.",
+    );
+  }
+
+  return { ownerProfile, stripeAccountId };
+}
+
+
+type OwnerAccessRequestRecord = {
+  id: string;
+  applicantUserId?: string;
+  applicantName?: string;
+  applicantEmail?: string;
+  applicantPhone?: string;
+  businessName?: string;
+  experienceTypes?: Array<string | null> | null;
+  experienceLocation?: string;
+  experienceImageUrl?: string;
+  description?: string;
+  estimatedPrice?: number;
+  status?: string;
+};
+
+function firstExperienceType(
+  values: Array<string | null> | null | undefined,
+): string {
+  return (
+    values?.find((value): value is string => Boolean(value?.trim()))?.trim() ?? ""
+  );
+}
+
+function imageExtension(path: string): string {
+  const fileName = path.split("/").pop() ?? "";
+  const extension = fileName.includes(".")
+    ? fileName.split(".").pop()?.toLowerCase()
+    : undefined;
+
+  if (
+    extension === "png" ||
+    extension === "jpg" ||
+    extension === "jpeg" ||
+    extension === "webp" ||
+    extension === "gif"
+  ) {
+    return extension;
+  }
+
+  return "jpg";
+}
+
+function encodeCopySource(bucketName: string, key: string): string {
+  const encodedKey = key
+    .split("/")
+    .map((segment) => encodeURIComponent(segment))
+    .join("/");
+
+  return `${bucketName}/${encodedKey}`;
+}
+
+async function copyApprovedPartnerImage(
+  sourcePath: string,
+  requestId: string,
+  applicantUserId: string,
+): Promise<string> {
+  if (sourcePath.startsWith("experience-images/")) {
+    return sourcePath;
+  }
+
+  if (!sourcePath.startsWith("partner-request-images/")) {
+    throw new Error(
+      `Unsupported owner-request image path: ${sourcePath}`,
+    );
+  }
+
+  const bucketName = env.EXPERIENCE_IMAGES_BUCKET_NAME;
+
+  if (!bucketName) {
+    throw new Error(
+      "The experienceImages Storage bucket is not available to the Stripe function.",
+    );
+  }
+
+  const extension = imageExtension(sourcePath);
+  const destinationPath =
+    `experience-images/${applicantUserId}/${requestId}.${extension}`;
+
+  await s3Client.send(
+    new CopyObjectCommand({
+      Bucket: bucketName,
+      CopySource: encodeCopySource(bucketName, sourcePath),
+      Key: destinationPath,
+    }),
+  );
+
+  return destinationPath;
+}
+
+async function ensureApprovedExperiencesExistForStripeAccount(
+  account: Stripe.Account,
+): Promise<void> {
+  const detailsSubmitted = account.details_submitted ?? false;
+  const chargesEnabled = account.charges_enabled ?? false;
+  const payoutsEnabled = account.payouts_enabled ?? false;
+
+  if (!detailsSubmitted || !chargesEnabled || !payoutsEnabled) {
+    console.log(
+      "Connected account is not fully payment-ready. Experience publication remains deferred.",
+      {
+        stripeAccountId: account.id,
+        detailsSubmitted,
+        chargesEnabled,
+        payoutsEnabled,
+      },
+    );
+    return;
+  }
+
+  const ownerProfileId =
+    account.metadata?.coastLifeOwnerProfileId?.trim() ?? "";
+  const applicantUserId =
+    account.metadata?.coastLifeUserId?.trim() ?? "";
+
+  if (!ownerProfileId || !applicantUserId) {
+    throw new Error(
+      `Stripe account ${account.id} is missing Coast Life owner metadata.`,
+    );
+  }
+
+  const ownerProfile = await getOwnerProfileById(ownerProfileId);
+
+  if (!ownerProfile) {
+    throw new Error(
+      `ExperienceOwnerProfile ${ownerProfileId} could not be found for Stripe account ${account.id}.`,
+    );
+  }
+
+  // Keep the stored Stripe status synchronized.
+  await dynamoDb.send(
+    new UpdateCommand({
+      TableName: env.OWNER_PROFILE_TABLE_NAME,
+      Key: { id: ownerProfileId },
+      UpdateExpression: `
+        SET
+          stripeOnboardingComplete = :onboardingComplete,
+          stripeChargesEnabled = :chargesEnabled,
+          stripePayoutsEnabled = :payoutsEnabled
+      `,
+      ExpressionAttributeValues: {
+        ":onboardingComplete": detailsSubmitted,
+        ":chargesEnabled": chargesEnabled,
+        ":payoutsEnabled": payoutsEnabled,
+      },
+    }),
+  );
+
+  const approvedRequestsResult = await dynamoDb.send(
+    new ScanCommand({
+      TableName: env.OWNER_ACCESS_REQUEST_TABLE_NAME,
+      FilterExpression:
+        "applicantUserId = :applicantUserId AND #status = :approved",
+      ExpressionAttributeNames: {
+        "#status": "status",
+      },
+      ExpressionAttributeValues: {
+        ":applicantUserId": applicantUserId,
+        ":approved": "APPROVED",
+      },
+    }),
+  );
+
+  const approvedRequests =
+    (approvedRequestsResult.Items as OwnerAccessRequestRecord[] | undefined) ??
+    [];
+
+  if (approvedRequests.length === 0) {
+    console.log(
+      "Stripe account is ready, but no approved owner request was found.",
+      {
+        stripeAccountId: account.id,
+        ownerProfileId,
+        applicantUserId,
+      },
+    );
+    return;
+  }
+
+  for (const request of approvedRequests) {
+    const existingExperience = await dynamoDb.send(
+      new GetCommand({
+        TableName: env.EXPERIENCE_TABLE_NAME,
+        Key: { id: request.id },
+      }),
+    );
+
+    if (existingExperience.Item) {
+      console.log(
+        "Approved experience already exists. No duplicate was created.",
+        {
+          requestId: request.id,
+          ownerProfileId,
+        },
+      );
+      continue;
+    }
+
+    const applicantName = request.applicantName?.trim() ?? "";
+    const applicantEmail =
+      request.applicantEmail?.trim() || ownerProfile.email?.trim() || "";
+    const experienceType = firstExperienceType(request.experienceTypes);
+    const experienceLocation = request.experienceLocation?.trim() ?? "";
+    const experienceImageUrl = request.experienceImageUrl?.trim() ?? "";
+
+    if (
+      !applicantName ||
+      !applicantEmail ||
+      !experienceType ||
+      !experienceLocation ||
+      !experienceImageUrl
+    ) {
+      throw new Error(
+        `Approved owner request ${request.id} is missing data required to publish its experience.`,
+      );
+    }
+
+    const experienceName =
+      request.businessName?.trim() ||
+      `${applicantName}'s ${experienceType} Experience`;
+
+    const publicExperienceImageUrl = await copyApprovedPartnerImage(
+      experienceImageUrl,
+      request.id,
+      applicantUserId,
+    );
+
+    const now = new Date().toISOString();
+
+    try {
+      await dynamoDb.send(
+        new PutCommand({
+          TableName: env.EXPERIENCE_TABLE_NAME,
+          Item: {
+            id: request.id,
+            name: experienceName,
+            description: request.description?.trim() || undefined,
+            location: experienceLocation,
+            estimatedPrice: request.estimatedPrice ?? undefined,
+            imageUrl: publicExperienceImageUrl,
+            experienceType,
+            ownerProfileId,
+            ownerEmail: applicantEmail,
+            ownerAccessRequestId: request.id,
+            owner: applicantUserId,
+            createdAt: now,
+            updatedAt: now,
+          },
+          ConditionExpression: "attribute_not_exists(id)",
+        }),
+      );
+
+      console.log(
+        "Stripe onboarding complete. Initial approved experience published.",
+        {
+          stripeAccountId: account.id,
+          ownerProfileId,
+          requestId: request.id,
+          experienceName,
+        },
+      );
+    } catch (error: unknown) {
+      const errorName =
+        typeof error === "object" && error && "name" in error
+          ? String((error as { name?: unknown }).name ?? "")
+          : "";
+
+      if (errorName === "ConditionalCheckFailedException") {
+        console.log(
+          "Experience was created concurrently. Treating as already published.",
+          {
+            requestId: request.id,
+            ownerProfileId,
+          },
+        );
+        continue;
+      }
+
+      throw error;
+    }
+  }
 }
 
 function formatPaymentEmailDateTime(value?: string) {
@@ -708,11 +1355,19 @@ async function handleBookingPaymentDetails(
 async function createOrReuseCheckoutSession(
   booking: BookingRecord,
 ): Promise<ApiGatewayResponse> {
+  const { stripeAccountId } =
+    await getStripeConnectedAccountForBooking(booking);
+
   if (booking.stripeCheckoutSessionId) {
     try {
       const existingSession = await stripe.checkout.sessions.retrieve(
         booking.stripeCheckoutSessionId,
+        {},
+        {
+          stripeAccount: stripeAccountId,
+        },
       );
+
       if (existingSession.status === "open" && existingSession.url) {
         return jsonResponse(200, {
           success: true,
@@ -726,43 +1381,71 @@ async function createOrReuseCheckoutSession(
         });
       }
     } catch (error: unknown) {
-      console.warn("The previous Stripe Checkout Session could not be reused.", error);
+      console.warn(
+        "The previous Stripe Checkout Session could not be reused.",
+        error,
+      );
     }
   }
 
+  const amountInCents = booking.amountInCents!;
+  const coastLifeFeeInCents = calculateCoastLifeFee(amountInCents);
   const appUrl = env.APP_URL.replace(/\/$/, "");
-  const session = await stripe.checkout.sessions.create({
-    mode: "payment",
-    customer_email: booking.customerEmail,
-    client_reference_id: booking.id,
-    metadata: {
-      bookingId: booking.id,
-      experienceId: booking.experienceId ?? "",
-      ownerProfileId: booking.ownerProfileId ?? "",
-      customerUserId: booking.customerUserId ?? "",
-    },
-    line_items: [
-      {
-        quantity: 1,
-        price_data: {
-          currency: "usd",
-          unit_amount: booking.amountInCents,
-          product_data: {
-            name: booking.experienceName ?? "Coast Life Experience",
-            description: booking.appointmentDateTime
-              ? `Booking for ${new Date(booking.appointmentDateTime).toLocaleString("en-US")}`
-              : "Coast Life booking",
-          },
+
+  const session = await stripe.checkout.sessions.create(
+    {
+      mode: "payment",
+      customer_email: booking.customerEmail,
+      client_reference_id: booking.id,
+      metadata: {
+        bookingId: booking.id,
+        experienceId: booking.experienceId ?? "",
+        ownerProfileId: booking.ownerProfileId ?? "",
+        customerUserId: booking.customerUserId ?? "",
+        coastLifeFeePercent: String(COAST_LIFE_FEE_PERCENT),
+        coastLifeFeeInCents: String(coastLifeFeeInCents),
+      },
+      payment_intent_data: {
+        application_fee_amount: coastLifeFeeInCents,
+        metadata: {
+          bookingId: booking.id,
+          experienceId: booking.experienceId ?? "",
+          ownerProfileId: booking.ownerProfileId ?? "",
+          customerUserId: booking.customerUserId ?? "",
+          coastLifeFeePercent: String(COAST_LIFE_FEE_PERCENT),
+          coastLifeFeeInCents: String(coastLifeFeeInCents),
         },
       },
-    ],
-    success_url:
-      `${appUrl}/booking/payment-success?bookingId=${encodeURIComponent(
-        booking.id,
-      )}&session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url:
-      `${appUrl}/?payment=cancelled&bookingId=${encodeURIComponent(booking.id)}`,
-  });
+      line_items: [
+        {
+          quantity: 1,
+          price_data: {
+            currency: "usd",
+            unit_amount: amountInCents,
+            product_data: {
+              name: booking.experienceName ?? "Coast Life Experience",
+              description: booking.appointmentDateTime
+                ? `Booking for ${new Date(
+                    booking.appointmentDateTime,
+                  ).toLocaleString("en-US")}`
+                : "Coast Life booking",
+            },
+          },
+        },
+      ],
+      success_url:
+        `${appUrl}/booking/payment-success?bookingId=${encodeURIComponent(
+          booking.id,
+        )}&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url:
+        `${appUrl}/?payment=cancelled&bookingId=${encodeURIComponent(
+          booking.id,
+        )}`,
+    },
+    {
+      stripeAccount: stripeAccountId,
+    },
+  );
 
   if (!session.url) {
     return jsonResponse(502, {
@@ -789,17 +1472,41 @@ async function createOrReuseCheckoutSession(
       }),
     );
   } catch (error: unknown) {
-    console.error("Stripe Session was created but could not be saved to the Booking.", error);
-    try {
-      await stripe.checkout.sessions.expire(session.id);
-    } catch (expireError: unknown) {
-      console.error("The untracked Stripe Session could not be expired.", expireError);
-    }
+    console.error(
+      "Stripe Session was created but could not be saved to the Booking.",
+      error,
+    );
+
+   try {
+  await stripe.checkout.sessions.expire(
+    session.id,
+    {},
+    {
+      stripeAccount: stripeAccountId,
+    },
+  );
+} catch (expireError: unknown) {
+  console.error(
+    "The untracked Stripe Session could not be expired.",
+    expireError,
+  );
+}
+
     return jsonResponse(500, {
       success: false,
-      message: "The Stripe Session was created, but the Booking could not be updated.",
+      message:
+        "The Stripe Session was created, but the Booking could not be updated.",
     });
   }
+
+  console.log("Direct-charge Checkout Session created.", {
+    bookingId: booking.id,
+    stripeAccountId,
+    amountInCents,
+    coastLifeFeeInCents,
+    coastLifeFeePercent: COAST_LIFE_FEE_PERCENT,
+    checkoutSessionId: session.id,
+  });
 
   return jsonResponse(200, {
     success: true,
@@ -807,6 +1514,8 @@ async function createOrReuseCheckoutSession(
     checkoutUrl: session.url,
     sessionId: session.id,
     expiresAt,
+    coastLifeFeeInCents,
+    coastLifeFeePercent: COAST_LIFE_FEE_PERCENT,
     reused: false,
   });
 }
@@ -834,11 +1543,17 @@ async function handleIOSCreatePaymentIntent(
   if (validation.response) return validation.response;
 
   const booking = validation.booking;
+  const { stripeAccountId } =
+    await getStripeConnectedAccountForBooking(booking);
 
   if (booking.stripePaymentIntentId) {
     try {
       const existingIntent = await stripe.paymentIntents.retrieve(
         booking.stripePaymentIntentId,
+        {},
+        {
+          stripeAccount: stripeAccountId,
+        },
       );
 
       if (
@@ -853,6 +1568,7 @@ async function handleIOSCreatePaymentIntent(
           paymentIntentId: existingIntent.id,
           amountInCents: booking.amountInCents ?? null,
           currency: existingIntent.currency.toUpperCase(),
+          stripeAccountId,
           reused: true,
         });
       }
@@ -861,20 +1577,31 @@ async function handleIOSCreatePaymentIntent(
     }
   }
 
-  const paymentIntent = await stripe.paymentIntents.create({
-    amount: booking.amountInCents!,
-    currency: "usd",
-    automatic_payment_methods: { enabled: true },
-    metadata: {
-      bookingId: booking.id,
-      experienceId: booking.experienceId ?? "",
-      ownerProfileId: booking.ownerProfileId ?? "",
-      customerUserId: booking.customerUserId ?? "",
+  const amountInCents = booking.amountInCents!;
+  const coastLifeFeeInCents = calculateCoastLifeFee(amountInCents);
+
+  const paymentIntent = await stripe.paymentIntents.create(
+    {
+      amount: amountInCents,
+      currency: "usd",
+      automatic_payment_methods: { enabled: true },
+      application_fee_amount: coastLifeFeeInCents,
+      metadata: {
+        bookingId: booking.id,
+        experienceId: booking.experienceId ?? "",
+        ownerProfileId: booking.ownerProfileId ?? "",
+        customerUserId: booking.customerUserId ?? "",
+        coastLifeFeePercent: String(COAST_LIFE_FEE_PERCENT),
+        coastLifeFeeInCents: String(coastLifeFeeInCents),
+      },
+      description: booking.experienceName
+        ? `Coast Life - ${booking.experienceName}`
+        : "Coast Life Experience",
     },
-    description: booking.experienceName
-      ? `Coast Life - ${booking.experienceName}`
-      : "Coast Life Experience",
-  });
+    {
+      stripeAccount: stripeAccountId,
+    },
+  );
 
   if (!paymentIntent.client_secret) {
     return jsonResponse(502, {
@@ -899,11 +1626,22 @@ async function handleIOSCreatePaymentIntent(
       "PaymentIntent was created but could not be saved to the Booking.",
       error,
     );
+
     try {
-      await stripe.paymentIntents.cancel(paymentIntent.id);
+      await stripe.paymentIntents.cancel(
+        paymentIntent.id,
+        {},
+        {
+          stripeAccount: stripeAccountId,
+        },
+      );
     } catch (cancelError: unknown) {
-      console.error("Untracked PaymentIntent could not be cancelled.", cancelError);
+      console.error(
+        "Untracked PaymentIntent could not be cancelled.",
+        cancelError,
+      );
     }
+
     return jsonResponse(500, {
       success: false,
       message:
@@ -911,9 +1649,12 @@ async function handleIOSCreatePaymentIntent(
     });
   }
 
-  console.log("iOS PaymentIntent created.", {
+  console.log("iOS direct-charge PaymentIntent created.", {
     bookingId: booking.id,
-    amountInCents: booking.amountInCents,
+    amountInCents,
+    coastLifeFeeInCents,
+    coastLifeFeePercent: COAST_LIFE_FEE_PERCENT,
+    stripeAccountId,
     paymentIntentId: paymentIntent.id,
   });
 
@@ -922,7 +1663,10 @@ async function handleIOSCreatePaymentIntent(
     message: "Stripe PaymentIntent created.",
     clientSecret: paymentIntent.client_secret,
     paymentIntentId: paymentIntent.id,
-    amountInCents: booking.amountInCents ?? null,
+    amountInCents,
+    coastLifeFeeInCents,
+    coastLifeFeePercent: COAST_LIFE_FEE_PERCENT,
+    stripeAccountId,
     currency: "USD",
     reused: false,
   });
@@ -989,7 +1733,16 @@ async function handleIOSConfirmPayment(
     });
   }
 
-  const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
+  const { stripeAccountId } =
+    await getStripeConnectedAccountForBooking(booking);
+
+  const paymentIntent = await stripe.paymentIntents.retrieve(
+    paymentIntentId,
+    {},
+    {
+      stripeAccount: stripeAccountId,
+    },
+  );
 
   if (paymentIntent.metadata?.bookingId !== booking.id) {
     return jsonResponse(409, {
@@ -1264,7 +2017,17 @@ async function handlePaymentSuccessDetails(
     });
   }
 
-  const session = await stripe.checkout.sessions.retrieve(sessionId);
+  const { stripeAccountId } =
+    await getStripeConnectedAccountForBooking(booking);
+
+  const session = await stripe.checkout.sessions.retrieve(
+    sessionId,
+    {},
+    {
+      stripeAccount: stripeAccountId,
+    },
+  );
+
   const sessionBookingId =
     session.metadata?.bookingId ?? session.client_reference_id ?? "";
 
@@ -1369,6 +2132,22 @@ async function handleStripeWebhook(
         break;
       }
 
+      case "account.updated": {
+        const account = stripeEvent.data.object as Stripe.Account;
+
+        console.log("======================================");
+        console.log("CONNECTED ACCOUNT UPDATED");
+        console.log("Event ID:", stripeEvent.id);
+        console.log("Stripe Account ID:", account.id);
+        console.log("Details submitted:", account.details_submitted);
+        console.log("Charges enabled:", account.charges_enabled);
+        console.log("Payouts enabled:", account.payouts_enabled);
+        console.log("======================================");
+
+        await ensureApprovedExperiencesExistForStripeAccount(account);
+        break;
+      }
+
       default:
         console.log(`Ignoring Stripe event ${stripeEvent.type}.`);
     }
@@ -1417,6 +2196,24 @@ export const handler = async (
     ) {
       return await handleStripeWebhook(event);
     }
+    if (
+      event.httpMethod === "POST" &&
+      event.path?.endsWith("/create-connected-account")
+    ) {
+      return await handleCreateConnectedAccount(event);
+    }
+    if (
+      event.httpMethod === "POST" &&
+      event.path?.endsWith("/create-account-session")
+    ) {
+      return await handleCreateAccountSession(event);
+    }
+if (
+  event.httpMethod === "GET" &&
+  event.path?.endsWith("/stripe-account-status")
+) {
+  return await handleStripeAccountStatus(event);
+}
 
     if (
       event.httpMethod === "POST" &&

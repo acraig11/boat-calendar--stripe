@@ -34,6 +34,13 @@ const schema = a
         // ownership to the approved applicant.
         owner: a.string(),
 
+
+        // Stripe Connect
+        stripeAccountId: a.string(),
+        stripeOnboardingComplete: a.boolean().default(false),
+        stripeChargesEnabled: a.boolean().default(false),
+        stripePayoutsEnabled: a.boolean().default(false),
+
         experiences: a.hasMany("Experience", "ownerProfileId"),
         bookings: a.hasMany("Booking", "ownerProfileId"),
         calendarEvents: a.hasMany(

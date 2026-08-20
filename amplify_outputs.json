@@ -247,6 +247,34 @@
               "isRequired": false,
               "attributes": []
             },
+            "stripeAccountId": {
+              "name": "stripeAccountId",
+              "isArray": false,
+              "type": "String",
+              "isRequired": false,
+              "attributes": []
+            },
+            "stripeOnboardingComplete": {
+              "name": "stripeOnboardingComplete",
+              "isArray": false,
+              "type": "Boolean",
+              "isRequired": false,
+              "attributes": []
+            },
+            "stripeChargesEnabled": {
+              "name": "stripeChargesEnabled",
+              "isArray": false,
+              "type": "Boolean",
+              "isRequired": false,
+              "attributes": []
+            },
+            "stripePayoutsEnabled": {
+              "name": "stripePayoutsEnabled",
+              "isArray": false,
+              "type": "Boolean",
+              "isRequired": false,
+              "attributes": []
+            },
             "experiences": {
               "name": "experiences",
               "isArray": true,

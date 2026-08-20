@@ -15,6 +15,8 @@
     "@aws-sdk/lib-dynamodb": "^3.1102.0",
     "@emailjs/browser": "^4.4.1",
     "@fullcalendar/react": "^7.0.1",
+    "@stripe/connect-js": "^3.4.6",
+    "@stripe/react-connect-js": "^3.4.4",
     "aws-amplify": "^6.19.0",
     "emailjs": "^5.0.2",
     "react": "^19.2.7",

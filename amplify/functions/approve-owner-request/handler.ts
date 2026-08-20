@@ -2,7 +2,6 @@ import { Amplify } from "aws-amplify";
 import { generateClient } from "aws-amplify/data";
 import { getAmplifyDataClientConfig } from "@aws-amplify/backend/function/runtime";
 import { env } from "$amplify/env/approve-owner-request";
-import { CopyObjectCommand, S3Client } from "@aws-sdk/client-s3";
 
 import type { Schema } from "../../data/resource";
 
@@ -12,7 +11,6 @@ const { resourceConfig, libraryOptions } =
 Amplify.configure(resourceConfig, libraryOptions);
 
 const client = generateClient<Schema>();
-const s3Client = new S3Client({});
 
 const MODERATOR_USER_ID =
   "14588428-20f1-706f-f6d7-308f21156444";
@@ -36,76 +34,11 @@ function messages(
 function firstExperienceType(
   values: readonly (string | null)[] | null | undefined,
 ): string {
-  return values?.find(
-    (value): value is string => Boolean(value?.trim()),
-  )?.trim() ?? "";
-}
-
-function imageExtension(path: string): string {
-  const fileName = path.split("/").pop() ?? "";
-  const extension = fileName.includes(".")
-    ? fileName.split(".").pop()?.toLowerCase()
-    : undefined;
-
-  if (
-    extension === "png" ||
-    extension === "jpg" ||
-    extension === "jpeg" ||
-    extension === "webp" ||
-    extension === "gif"
-  ) {
-    return extension;
-  }
-
-  return "jpg";
-}
-
-function encodeCopySource(bucketName: string, key: string): string {
-  const encodedKey = key
-    .split("/")
-    .map((segment) => encodeURIComponent(segment))
-    .join("/");
-
-  return `${bucketName}/${encodedKey}`;
-}
-
-async function copyPartnerImageToPublicExperienceImages(
-  sourcePath: string,
-  requestId: string,
-  applicantUserId: string,
-): Promise<string> {
-  if (sourcePath.startsWith("experience-images/")) {
-    return sourcePath;
-  }
-
-  if (!sourcePath.startsWith("partner-request-images/")) {
-    throw new Error(
-      `Unsupported owner-request image path: ${sourcePath}`,
-    );
-  }
-
- const bucketName = env.EXPERIENCE_IMAGES_BUCKET_NAME;
-
-  if (!bucketName) {
-    throw new Error(
-      "The experienceImages Storage bucket is not available to the approval function.",
-    );
-  }
-
-  const extension = imageExtension(sourcePath);
-
-  const destinationPath =
-    `experience-images/${applicantUserId}/${requestId}.${extension}`;
-
-  await s3Client.send(
-    new CopyObjectCommand({
-      Bucket: bucketName,
-      CopySource: encodeCopySource(bucketName, sourcePath),
-      Key: destinationPath,
-    }),
+  return (
+    values?.find(
+      (value): value is string => Boolean(value?.trim()),
+    )?.trim() ?? ""
   );
-
-  return destinationPath;
 }
 
 export const handler: Schema["approveOwnerRequest"]["functionHandler"] =
@@ -171,6 +104,8 @@ export const handler: Schema["approveOwnerRequest"]["functionHandler"] =
       throw new Error("The request is missing the applicant email.");
     }
 
+    // Keep validating the initial experience data now because the Stripe-ready
+    // backend flow will create the experience later from this approved request.
     if (!experienceType) {
       throw new Error("The request is missing an experience type.");
     }
@@ -183,10 +118,7 @@ export const handler: Schema["approveOwnerRequest"]["functionHandler"] =
       throw new Error("The request is missing the experience image.");
     }
 
-    const experienceName =
-      request.businessName?.trim() ||
-      `${applicantName}'s ${experienceType} Experience`;
-
+    // Approval creates the owner profile, but does NOT create the Experience.
     const profileListResult =
       await client.models.ExperienceOwnerProfile.list({
         filter: {
@@ -204,9 +136,9 @@ export const handler: Schema["approveOwnerRequest"]["functionHandler"] =
       );
     }
 
-    let ownerProfile = profileListResult.data[0] ?? null;
+    const existingOwnerProfile = profileListResult.data[0] ?? null;
 
-    if (!ownerProfile) {
+    if (!existingOwnerProfile) {
       const createProfileResult =
         await client.models.ExperienceOwnerProfile.create({
           id: applicantUserId,
@@ -217,83 +149,34 @@ export const handler: Schema["approveOwnerRequest"]["functionHandler"] =
           owner: applicantUserId,
         });
 
-      if (createProfileResult.errors?.length || !createProfileResult.data) {
+      if (
+        createProfileResult.errors?.length ||
+        !createProfileResult.data
+      ) {
+        // A concurrent request may already have created this deterministic ID.
         const retryProfileResult =
           await client.models.ExperienceOwnerProfile.get({
             id: applicantUserId,
           });
 
-        if (retryProfileResult.errors?.length || !retryProfileResult.data) {
+        if (
+          retryProfileResult.errors?.length ||
+          !retryProfileResult.data
+        ) {
           throw new Error(
             messages(createProfileResult.errors) ||
               messages(retryProfileResult.errors) ||
               "The applicant owner profile could not be created.",
           );
         }
-
-        ownerProfile = retryProfileResult.data;
-      } else {
-        ownerProfile = createProfileResult.data;
       }
     }
 
-    const existingExperienceResult =
-      await client.models.Experience.get({
-        id: requestId,
-      });
-
-    if (existingExperienceResult.errors?.length) {
-      throw new Error(
-        messages(existingExperienceResult.errors) ||
-          "The approved experience could not be checked.",
-      );
-    }
-
-    if (!existingExperienceResult.data) {
-      const publicExperienceImageUrl =
-        await copyPartnerImageToPublicExperienceImages(
-          experienceImageUrl,
-          requestId,
-          applicantUserId,
-        );
-
-      const createExperienceResult =
-        await client.models.Experience.create({
-          id: requestId,
-          name: experienceName,
-          description: request.description?.trim() || undefined,
-          location: experienceLocation,
-          estimatedPrice: request.estimatedPrice ?? undefined,
-          imageUrl: publicExperienceImageUrl,
-          experienceType,
-          ownerProfileId: ownerProfile.id,
-          ownerEmail:applicantEmail,
-          ownerAccessRequestId: requestId,
-          owner: applicantUserId,
-        });
-
-      if (
-        createExperienceResult.errors?.length ||
-        !createExperienceResult.data
-      ) {
-        const retryExperienceResult =
-          await client.models.Experience.get({
-            id: requestId,
-          });
-
-        if (
-          retryExperienceResult.errors?.length ||
-          !retryExperienceResult.data
-        ) {
-          throw new Error(
-            messages(createExperienceResult.errors) ||
-              messages(retryExperienceResult.errors) ||
-              "The applicant experience could not be created.",
-          );
-        }
-      }
-    }
-
+    // Do not create Experience here.
+    // The Stripe backend will publish it only when the connected account has:
+    // details_submitted === true
+    // charges_enabled === true
+    // payouts_enabled === true
     const updateRequestResult =
       await client.models.OwnerAccessRequest.update({
         id: request.id,
@@ -311,6 +194,14 @@ export const handler: Schema["approveOwnerRequest"]["functionHandler"] =
           "The owner request could not be marked approved.",
       );
     }
+
+    console.log(
+      "Owner request approved. Initial experience remains unpublished until Stripe onboarding is complete.",
+      {
+        requestId: request.id,
+        applicantUserId,
+      },
+    );
 
     return "APPROVED";
   };
