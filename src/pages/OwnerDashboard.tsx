@@ -509,6 +509,44 @@ async function fetchStripeAccountStatus() {
   };
 }
 
+async function waitForStripeAccountStatus(
+  attempts = 8,
+  delayMs = 750,
+) {
+  let lastStatus: Awaited<ReturnType<typeof fetchStripeAccountStatus>> | null =
+    null;
+  let lastError: unknown = null;
+
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      const status = await fetchStripeAccountStatus();
+      lastStatus = status;
+
+      if (status.hasStripeAccount) {
+        return status;
+      }
+    } catch (error: unknown) {
+      lastError = error;
+    }
+
+    if (attempt < attempts - 1) {
+      await new Promise((resolve) =>
+        window.setTimeout(resolve, delayMs),
+      );
+    }
+  }
+
+  if (lastStatus) {
+    return lastStatus;
+  }
+
+  if (lastError instanceof Error) {
+    throw lastError;
+  }
+
+  throw new Error("Stripe account status could not be loaded.");
+}
+
 async function ensureStripeSetup() {
   if (!profile) {
     setStripeSetupState("IDLE");
@@ -524,7 +562,7 @@ async function ensureStripeSetup() {
 
     if (!status.hasStripeAccount) {
       await createConnectedAccountIfNeeded();
-      status = await fetchStripeAccountStatus();
+      status = await waitForStripeAccountStatus();
     }
 
     if (status.ready) {
@@ -548,35 +586,60 @@ async function ensureStripeSetup() {
 }
 
 async function fetchStripeConnectClientSecret(): Promise<string> {
-  const [stripeApi, idToken] = await Promise.all([
-    getStripeApiBaseUrl(),
-    getStripeIdToken(),
-  ]);
+  const stripeApi = await getStripeApiBaseUrl();
 
-  const response = await fetch(
-    `${stripeApi}/create-account-session`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: idToken,
-        "Content-Type": "application/json",
-      },
-    },
-  );
+  let lastError: unknown;
 
-  const result = await response.json();
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    try {
+      const idToken = await getStripeIdToken();
 
-  if (!response.ok) {
-    throw new Error(
-      result.message ?? "Could not create Stripe onboarding session.",
-    );
+      const response = await fetch(
+        `${stripeApi}/create-account-session`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: idToken,
+            "Content-Type": "application/json",
+          },
+        },
+      );
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          result.message ??
+            "Could not create Stripe onboarding session.",
+        );
+      }
+
+      if (!result.clientSecret) {
+        throw new Error(
+          "Stripe did not return an account session client secret.",
+        );
+      }
+
+      return result.clientSecret;
+    } catch (error: unknown) {
+      lastError = error;
+
+      console.warn(
+        `Stripe Account Session attempt ${attempt + 1} failed.`,
+        error,
+      );
+
+      if (attempt < 3) {
+        await new Promise((resolve) =>
+          window.setTimeout(resolve, 1000),
+        );
+      }
+    }
   }
 
-  if (!result.clientSecret) {
-    throw new Error("Stripe did not return a client secret.");
-  }
-
-  return result.clientSecret;
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("Could not authenticate Stripe Connect.");
 }
 const stripeConnectInstance = useRef(
   loadConnectAndInitialize({
@@ -1220,15 +1283,14 @@ const stripeConnectInstance = useRef(
   useEffect(() => {
     if (
       ownerAccessStatus === "APPROVED" &&
-      profile &&
-      !isModerator
+      profile
     ) {
       void ensureStripeSetup();
     } else if (!profile || ownerAccessStatus !== "APPROVED") {
       setStripeSetupState("IDLE");
       setShowStripeOnboarding(false);
     }
-  }, [ownerAccessStatus, profile?.id, isModerator]);
+  }, [ownerAccessStatus, profile?.id]);
 
   useEffect(() => {
     return () => {
@@ -2907,27 +2969,25 @@ async function createProfile(event: React.FormEvent<HTMLFormElement>) {
         </div>
 
         <div className="owner-dashboard-header-actions">
-          {!isModerator && stripeSetupState === "CHECKING" && (
+          {stripeSetupState === "CHECKING" && (
             <span>Checking Stripe payments...</span>
           )}
 
-          {!isModerator && stripeSetupState === "ACTIVE" && (
+          {stripeSetupState === "ACTIVE" && (
             <span>Stripe Payments Active</span>
           )}
 
-          {!isModerator && stripeSetupState === "ERROR" && (
+          {stripeSetupState === "ERROR" && (
             <span>{stripeSetupError || "Stripe setup needs attention."}</span>
           )}
 
-          <button type="button" onClick={signOut}>
-            Sign Out
-          </button>
+          
         </div>
       </header>
 
       {message && <p className="dashboard-message">{message}</p>}
 
-      {!isModerator && stripeSetupState === "NEEDS_ONBOARDING" && showStripeOnboarding && (
+      {stripeSetupState === "NEEDS_ONBOARDING" && showStripeOnboarding && (
         <section className="dashboard-section">
           <h2>Complete Stripe Payment Setup</h2>
           <p>
@@ -2956,7 +3016,7 @@ async function createProfile(event: React.FormEvent<HTMLFormElement>) {
         </section>
       )}
 
-      {!isModerator && stripeSetupState === "ERROR" && (
+      {stripeSetupState === "ERROR" && (
         <section className="dashboard-section">
           <h2>Stripe Payment Setup</h2>
           <p>{stripeSetupError}</p>

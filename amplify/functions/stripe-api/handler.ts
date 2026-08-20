@@ -125,7 +125,25 @@ function getRawRequestBody(event: ApiGatewayEvent): string {
 async function findOwnerProfileForUser(
   userId: string,
 ): Promise<OwnerProfileRecord | null> {
-  const result = await dynamoDb.send(
+  // New owner profiles use the Cognito user ID as their DynamoDB ID.
+  // Strongly consistent read prevents Stripe setup from seeing stale data
+  // immediately after profile/account creation.
+  const directResult = await dynamoDb.send(
+    new GetCommand({
+      TableName: env.OWNER_PROFILE_TABLE_NAME,
+      Key: {
+        id: userId,
+      },
+      ConsistentRead: true,
+    }),
+  );
+
+  if (directResult.Item) {
+    return directResult.Item as OwnerProfileRecord;
+  }
+
+  // Compatibility fallback for older profiles whose ID was not userId.
+  const fallbackResult = await dynamoDb.send(
     new ScanCommand({
       TableName: env.OWNER_PROFILE_TABLE_NAME,
       FilterExpression: "userId = :userId",
@@ -135,7 +153,10 @@ async function findOwnerProfileForUser(
     }),
   );
 
-  return (result.Items?.[0] as OwnerProfileRecord | undefined) ?? null;
+  return (
+    (fallbackResult.Items?.[0] as OwnerProfileRecord | undefined) ??
+    null
+  );
 }
 
 function isStripeConnectedAccountAccessError(error: unknown): boolean {
