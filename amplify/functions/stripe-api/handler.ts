@@ -238,6 +238,12 @@ async function handleCreateConnectedAccount(
     });
   }
 
+  const merchantName =
+    approvedOwnerRequest.businessName?.trim() ||
+    approvedOwnerRequest.applicantName?.trim() ||
+    ownerProfile.name?.trim() ||
+    "Coast Life Merchant";
+
   const appUrl = env.APP_URL.replace(/\/$/, "");
 
   const experienceUrl =
@@ -283,14 +289,15 @@ async function handleCreateConnectedAccount(
   }
 
   const idempotencyKey = replacingStaleAccount
-    ? `coastlife-owner-replace-v2-${ownerProfile.id}-${staleStripeAccountId}`
-    : `coastlife-owner-v8-${ownerProfile.id}`;
+    ? `coastlife-owner-replace-v3-${ownerProfile.id}-${staleStripeAccountId}`
+    : `coastlife-owner-v9-${ownerProfile.id}`;
 
   const account = await stripe.accounts.create(
     {
       country: "US",
       email: ownerProfile.email.trim(),
       business_profile: {
+        name: merchantName,
         url: experienceUrl,
         product_description:
           "Provider of recreational experiences booked through the Coast Life marketplace.",
