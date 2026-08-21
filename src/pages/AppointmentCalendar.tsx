@@ -161,7 +161,31 @@ function AppointmentCalendarContent() {
       setSelectedExperiences([matchingExperience]);
     }
   }, [searchParams]);
+useEffect(() => {
+  const requestedExperienceId =
+    searchParams.get("experienceId")?.trim();
 
+  if (!requestedExperienceId || experienceRecords.length === 0) {
+    return;
+  }
+
+  const matchingExperience = experienceRecords.find(
+    (experience) => experience.id === requestedExperienceId,
+  );
+
+  if (!matchingExperience) {
+    return;
+  }
+
+  // Filter the page to this specific experience.
+  if (matchingExperience.experienceType) {
+    setSelectedExperiences([
+      matchingExperience.experienceType,
+    ]);
+  }
+
+  setLocationFilter(matchingExperience.location);
+}, [searchParams, experienceRecords]);
   const [selectedExperience, setSelectedExperience] =
     useState<Experience | null>(null);
 
