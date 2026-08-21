@@ -172,6 +172,31 @@ function isStripeConnectedAccountAccessError(error: unknown): boolean {
   );
 }
 
+
+async function findApprovedOwnerRequestForUser(
+  userId: string,
+): Promise<OwnerAccessRequestRecord | null> {
+  const result = await dynamoDb.send(
+    new ScanCommand({
+      TableName: env.OWNER_ACCESS_REQUEST_TABLE_NAME,
+      FilterExpression:
+        "applicantUserId = :userId AND #status = :approved",
+      ExpressionAttributeNames: {
+        "#status": "status",
+      },
+      ExpressionAttributeValues: {
+        ":userId": userId,
+        ":approved": "APPROVED",
+      },
+    }),
+  );
+
+  return (
+    (result.Items?.[0] as OwnerAccessRequestRecord | undefined) ??
+    null
+  );
+}
+
 async function handleCreateConnectedAccount(
   event: ApiGatewayEvent,
 ): Promise<ApiGatewayResponse> {
@@ -201,6 +226,26 @@ async function handleCreateConnectedAccount(
         "The experience owner profile must have an email address before Stripe onboarding can begin.",
     });
   }
+
+  const approvedOwnerRequest =
+    await findApprovedOwnerRequestForUser(userId);
+
+  if (!approvedOwnerRequest) {
+    return jsonResponse(409, {
+      success: false,
+      message:
+        "An approved experience partner request is required before Stripe onboarding can begin.",
+    });
+  }
+
+  const appUrl = env.APP_URL.replace(/\/$/, "");
+
+  const experienceUrl =
+    `${appUrl}/Booking?experienceId=${encodeURIComponent(
+      approvedOwnerRequest.id,
+    )}`;
+
+  console.log("STRIPE BUSINESS PROFILE URL:", experienceUrl);
 
   const staleStripeAccountId = ownerProfile.stripeAccountId?.trim() ?? "";
   let replacingStaleAccount = false;
@@ -238,17 +283,18 @@ async function handleCreateConnectedAccount(
   }
 
   const idempotencyKey = replacingStaleAccount
-    ? `coastlife-owner-replace-${ownerProfile.id}-${staleStripeAccountId}`
-    : `coastlife-owner-v7-${ownerProfile.id}`;
+    ? `coastlife-owner-replace-v2-${ownerProfile.id}-${staleStripeAccountId}`
+    : `coastlife-owner-v8-${ownerProfile.id}`;
 
   const account = await stripe.accounts.create(
     {
       country: "US",
       email: ownerProfile.email.trim(),
       business_profile: {
-      product_description:
-        "Provider of recreational experiences booked through the Coast Life marketplace.",
-    },
+        url: experienceUrl,
+        product_description:
+          "Provider of recreational experiences booked through the Coast Life marketplace.",
+      },
       controller: {
         fees: {
           payer: "account",
