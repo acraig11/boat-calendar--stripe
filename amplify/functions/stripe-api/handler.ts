@@ -245,7 +245,10 @@ async function handleCreateConnectedAccount(
     {
       country: "US",
       email: ownerProfile.email.trim(),
-
+      business_profile: {
+      product_description:
+        "Provider of recreational experiences booked through the Coast Life marketplace.",
+    },
       controller: {
         fees: {
           payer: "account",
