@@ -558,7 +558,7 @@ async function ensureStripeSetup() {
     setStripeSetupState("CHECKING");
     setStripeSetupError("");
 
-    let status = await waitForStripeAccountStatus();
+    let status = await fetchStripeAccountStatus();
 
     if (!status.hasStripeAccount) {
       await createConnectedAccountIfNeeded();
@@ -973,7 +973,209 @@ const stripeConnectInstance = useRef(
        * Using "no existing experiences for this profile" makes this safe to
        * run again when the dashboard reloads without creating duplicates.
        */
-    
+      if (
+        currentProfile &&
+        !moderator &&
+        latestAccessRequest?.status === "APPROVED"
+      ) {
+        /*
+         * Do not publish/create the owner's initial experience until Stripe
+         * says the connected account is fully ready to accept payments.
+         *
+         * When onboarding finishes, ConnectAccountOnboarding.onExit calls
+         * loadDashboard() again. At that point this check will pass and the
+         * initial experience will be created automatically.
+         */
+        const stripeStatus = await fetchStripeAccountStatus();
+
+        if (!stripeStatus.ready) {
+          console.log(
+            "Stripe onboarding is not complete. Initial experience creation is being deferred.",
+            {
+              ownerProfileId: currentProfile.id,
+              hasStripeAccount: stripeStatus.hasStripeAccount ?? false,
+              detailsSubmitted: stripeStatus.detailsSubmitted ?? false,
+              chargesEnabled: stripeStatus.chargesEnabled ?? false,
+              payoutsEnabled: stripeStatus.payoutsEnabled ?? false,
+            },
+          );
+        } else {
+        const initialExperienceType =
+          latestAccessRequest.experienceTypes?.[0]?.trim() ?? "";
+
+        const initialExperienceLocation =
+          latestAccessRequest.experienceLocation?.trim() ?? "";
+
+        const initialExperienceName =
+          latestAccessRequest.businessName?.trim() ||
+          (initialExperienceType
+            ? `${latestAccessRequest.applicantName}'s ${initialExperienceType} Experience`
+            : "");
+
+        const normalizedType = initialExperienceType.toLowerCase();
+        const normalizedLocation = initialExperienceLocation.toLowerCase();
+        const normalizedName = initialExperienceName.toLowerCase();
+
+        const existingInitialExperience = allExperiences.find(
+          (experience) =>
+            experience.ownerProfileId === currentProfile.id &&
+            (experience.experienceType?.trim().toLowerCase() ?? "") ===
+              normalizedType &&
+            experience.location.trim().toLowerCase() === normalizedLocation &&
+            experience.name.trim().toLowerCase() === normalizedName,
+        );
+
+        if (existingInitialExperience) {
+          console.log(
+            "Initial approved experience already exists. Skipping creation:",
+            existingInitialExperience,
+          );
+        } else if (
+          initialExperienceCreationInProgress.has(latestAccessRequest.id)
+        ) {
+          console.log(
+            "Initial experience creation is already in progress for this approved request. Skipping duplicate create.",
+            latestAccessRequest.id,
+          );
+        } else if (!initialExperienceType) {
+          console.warn(
+            "Approved partner request does not contain an experience type. The initial experience was not created.",
+          );
+        } else if (!initialExperienceLocation) {
+          console.warn(
+            "Approved partner request does not contain an experience location. The initial experience was not created.",
+          );
+        } else {
+          initialExperienceCreationInProgress.add(latestAccessRequest.id);
+
+          try {
+            /*
+             * Re-read this owner's experiences immediately before creating.
+             * This catches a record created by another dashboard load that
+             * completed after the original Experience.list() call.
+             */
+            const latestOwnerExperienceResult =
+              await client.models.Experience.list();
+
+            if (latestOwnerExperienceResult.errors?.length) {
+              throw new Error(
+                latestOwnerExperienceResult.errors
+                  .map((error) => error.message)
+                  .join(", "),
+              );
+            }
+
+            const duplicateFoundImmediatelyBeforeCreate =
+              latestOwnerExperienceResult.data.some(
+                (experience) =>
+                  experience.ownerProfileId === currentProfile.id &&
+                  (experience.experienceType?.trim().toLowerCase() ?? "") ===
+                    normalizedType &&
+                  experience.location.trim().toLowerCase() ===
+                    normalizedLocation &&
+                  experience.name.trim().toLowerCase() === normalizedName,
+              );
+
+            if (duplicateFoundImmediatelyBeforeCreate) {
+              console.log(
+                "Initial approved experience was created by another dashboard load. Skipping duplicate create.",
+              );
+
+              allExperiences = [...latestOwnerExperienceResult.data];
+            } else {
+              console.log(
+                "Creating the approved owner's initial experience from the partner request:",
+                {
+                  ownerProfileId: currentProfile.id,
+                  requestId: latestAccessRequest.id,
+                  name: initialExperienceName,
+                  experienceType: initialExperienceType,
+                  location: initialExperienceLocation,
+                  estimatedPrice:
+                    latestAccessRequest.estimatedPrice ?? undefined,
+                },
+              );
+
+              let publicExperienceImagePath: string | undefined;
+
+              try {
+                if (latestAccessRequest.experienceImageUrl) {
+                  console.log(
+                    "Copying approved partner image into public experience-images storage:",
+                    latestAccessRequest.experienceImageUrl,
+                  );
+
+                  publicExperienceImagePath =
+                    await copyPartnerImageToPublicExperienceImages(
+                      latestAccessRequest.experienceImageUrl,
+                    );
+
+                  console.log(
+                    "PUBLIC EXPERIENCE IMAGE CREATED:",
+                    publicExperienceImagePath,
+                  );
+                }
+
+                const createExperienceResult =
+                  await client.models.Experience.create({
+                    name: initialExperienceName,
+                    experienceType: initialExperienceType,
+                    location: initialExperienceLocation,
+                    description:
+                      latestAccessRequest.description?.trim() || undefined,
+                    estimatedPrice:
+                      latestAccessRequest.estimatedPrice ?? undefined,
+                    imageUrl: publicExperienceImagePath,
+                    ownerProfileId: currentProfile.id,
+                    ownerEmail: currentProfile.email,
+                  } as any);
+
+                if (
+                  createExperienceResult.errors?.length ||
+                  !createExperienceResult.data
+                ) {
+                  throw new Error(
+                    createExperienceResult.errors
+                      ?.map((error) => error.message)
+                      .join(", ") ||
+                      "The initial experience could not be created from the approved partner request.",
+                  );
+                }
+
+                allExperiences = [
+                  ...latestOwnerExperienceResult.data,
+                  createExperienceResult.data,
+                ];
+
+                console.log(
+                  "INITIAL EXPERIENCE CREATED:",
+                  createExperienceResult.data,
+                );
+              } catch (createInitialExperienceError) {
+                if (publicExperienceImagePath) {
+                  try {
+                    await remove({
+                      path: publicExperienceImagePath,
+                    });
+                  } catch (cleanupError) {
+                    console.error(
+                      "Initial experience creation failed and the copied public image could not be removed:",
+                      cleanupError,
+                    );
+                  }
+                }
+
+                throw createInitialExperienceError;
+              }
+            }
+          } finally {
+            initialExperienceCreationInProgress.delete(
+              latestAccessRequest.id,
+            );
+          }
+        }
+        }
+      }
 
       console.log("ALL EXPERIENCES:", allExperiences);
       console.log("ALL BOOKINGS:", bookingResult.data);
