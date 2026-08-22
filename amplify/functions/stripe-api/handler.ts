@@ -289,8 +289,8 @@ async function handleCreateConnectedAccount(
   }
 
   const idempotencyKey = replacingStaleAccount
-    ? `coastlife-owner-replace-v3-${ownerProfile.id}-${staleStripeAccountId}`
-    : `coastlife-owner-v9-${ownerProfile.id}`;
+    ? `coastlife-owner-replace-v4-${ownerProfile.id}-${staleStripeAccountId}`
+    : `coastlife-owner-v10-${ownerProfile.id}`;
 
   const account = await stripe.accounts.create(
     {
