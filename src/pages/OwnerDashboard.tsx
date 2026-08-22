@@ -522,7 +522,7 @@ async function waitForStripeAccountStatus(
       const status = await fetchStripeAccountStatus();
       lastStatus = status;
 
-      if (status.hasStripeAccount) {
+      if (status.ready) {
         return status;
       }
     } catch (error: unknown) {
@@ -3007,8 +3007,33 @@ async function createProfile(event: React.FormEvent<HTMLFormElement>) {
             <ConnectComponentsProvider connectInstance={stripeConnectInstance}>
               <ConnectAccountOnboarding
                 onExit={() => {
-                  void ensureStripeSetup();
-                  void loadDashboard();
+                  void (async () => {
+                    try {
+                      setStripeSetupState("CHECKING");
+                      setStripeSetupError("");
+
+                      const status =
+                        await waitForStripeAccountStatus(12, 1000);
+
+                      if (status.ready) {
+                        setShowStripeOnboarding(false);
+                        setStripeSetupState("ACTIVE");
+
+                        await loadDashboard();
+                        return;
+                      }
+
+                      await ensureStripeSetup();
+                      await loadDashboard();
+                    } catch (error: unknown) {
+                      console.error(
+                        "Could not refresh Stripe status after onboarding:",
+                        error,
+                      );
+
+                      await ensureStripeSetup();
+                    }
+                  })();
                 }}
               />
             </ConnectComponentsProvider>
