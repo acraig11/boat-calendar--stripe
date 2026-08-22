@@ -59,6 +59,7 @@ type OwnerProfileRecord = {
   userId?: string;
   name?: string;
   email?: string;
+  createdAt?: string;
 
   stripeAccountId?: string;
   stripeOnboardingComplete?: boolean;
@@ -288,9 +289,13 @@ async function handleCreateConnectedAccount(
     }
   }
 
+  const profileGeneration =
+    ownerProfile.createdAt?.replace(/[^0-9A-Za-z]/g, "") ||
+    "legacy";
+
   const idempotencyKey = replacingStaleAccount
-    ? `coastlife-owner-replace-v4-${ownerProfile.id}-${staleStripeAccountId}`
-    : `coastlife-owner-v10-${ownerProfile.id}`;
+    ? `coastlife-owner-replace-${ownerProfile.id}-${staleStripeAccountId}`
+    : `coastlife-owner-${ownerProfile.id}-${profileGeneration}`;
 
   const account = await stripe.accounts.create(
     {
